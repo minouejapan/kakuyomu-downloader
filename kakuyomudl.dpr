@@ -308,7 +308,7 @@ begin
   Result := tmp;
 end;
 
-// HTML特殊文字の処理（実際の文字→エスケープ）
+// HTML特殊文字の処理（エスケープ文字列→実際の文字）
 function Restore2RealChar(Base: string): string;
 var
   tmp: string;
