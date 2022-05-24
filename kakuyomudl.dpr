@@ -1,6 +1,7 @@
 ﻿(*
   カクヨム小説ダウンローダー[kakuyomudl]
 
+  1.9 2022/03/02  前書きに青空文庫タグがあることがあるため代替文字化処理を追加した
       2021/12/15  GitHubに上げるためソースコードを整理した
   1.8 2021/10/07  エピソードが1話の場合にダウンロード出来なかった不具合を修正した
                   前書きがない場合ダウンロードに失敗する不具合を修正した
@@ -667,7 +668,7 @@ begin
               if sp > 1 then
                 Delete(ts, sp, Length(ts));
               TextPage.Add(AO_KKL);
-              TextPage.Add(ts);
+              TextPage.Add(ChangeAozoraTag(ts));  // 前書きに《》を使いう作者がいたりして
               TextPage.Add(AO_KKR);
               TextPage.Add(AO_PB2);
               LogFile.Add('あらすじ：');
