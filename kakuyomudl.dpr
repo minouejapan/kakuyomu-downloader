@@ -629,8 +629,9 @@ begin
           Delete(fn, 27, Length(fn) - 26);
         Filename := Path + fn + '.txt';
       end;
-      // タイトル名の先頭に小説の連載状況を追加する
-      title := NvStat + title;
+      // タイトル名タイトル名に"完結"が含まれていなければ先頭に小説の連載状況を追加する
+      if Pos('完結', title) = 0 then
+      	title := NvStat + title;
       // タイトル名を保存
       TextPage.Add(title);
       LogFile.Add('タイトル：' + title);
