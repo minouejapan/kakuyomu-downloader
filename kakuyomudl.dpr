@@ -1,6 +1,7 @@
 ﻿(*
   カクヨム小説ダウンローダー[kakuyomudl]
 
+  2.0 2022/08/05  タイトル名の先頭に連載状況（連載中・完結）を追加するようにした
   1.9 2022/03/02  前書きに青空文庫タグがあることがあるため代替文字化処理を追加した
       2021/12/15  GitHubに上げるためソースコードを整理した
   1.8 2021/10/07  エピソードが1話の場合にダウンロード出来なかった不具合を修正した
@@ -23,8 +24,14 @@ program kakuyomudl;
 
 {$R *.res}
 
+{$R *.dres}
+
 uses
-  System.SysUtils, System.Classes, Windows, WinInet, WinAPI.Messages;
+  System.SysUtils,
+  System.Classes,
+  Windows,
+  WinInet,
+  WinAPI.Messages;
 
 const
   // データ抽出用の識別タグ
@@ -60,6 +67,8 @@ const
   SHREFB   = '<a href="';
   SHREFE   = '">';
   SURLB    = 'https://';
+
+  SHEAD    = '<h3 class="heading-level2">目次</h3>';
 
   ITITLEB  = 27;  // 小説表題
   ITITLEE  = 4;
@@ -120,7 +129,6 @@ const
 
   CRLF   = #$0D#$0A;
 
-
 // ユーザメッセージID
   WM_DLINFO  = WM_USER + 30;
 
@@ -128,7 +136,7 @@ var
   PageList,
   TextPage,
   LogFile: TStringList;
-  Capter, URL, Path, FileName, strhdl: string;
+  Capter, URL, Path, FileName, NvStat, strhdl: string;
   RBuff: TMemoryStream;
   TBuff: TStringList;
   hWnd: THandle;
@@ -621,6 +629,8 @@ begin
           Delete(fn, 27, Length(fn) - 26);
         Filename := Path + fn + '.txt';
       end;
+      // タイトル名の先頭に小説の連載状況を追加する
+      title := NvStat + title;
       // タイトル名を保存
       TextPage.Add(title);
       LogFile.Add('タイトル：' + title);
@@ -710,15 +720,34 @@ begin
   end;
 end;
 
+// 小説の連載状況をチェックする
+function GetNovelStatus(MainPage: string): string;
+var
+  str: string;
+  p: integer;
+begin
+  Result := '';
+  p := Pos(SHEAD, MainPage);
+  if p > 0 then
+  begin
+    str := Copy(MainPage, p, 200);
+    if Pos('連載中', str) > 0 then
+      Result := '【連載中】'
+    else if Pos('完結', str) > 0 then
+      Result := '【完結】';
+  end;
+end;
+
 begin
   if ParamCount = 0 then
   begin
     Writeln('');
-    Writeln('kakuyomudl ver1.6 2021/9/16 (c) INOUE, masahiro.');
+    Writeln('kakuyomudl ver2.0 2022/8/5 (c) INOUE, masahiro.');
     Writeln('  使用方法');
     Writeln('  kakuyomudl 小説トップページのURL [保存するファイル名(省略するとタイトル名で保存します)]');
     Exit;
   end;
+  ExitCode := 0;
   hWnd := 0;
 
   Path := ExtractFilePath(ParamStr(0));
@@ -740,6 +769,7 @@ begin
   if Pos('https://kakuyomu.jp/works/', URL) = 0 then
   begin
     Writeln('小説のURLが違います.');
+    ExitCode := -1;
     Exit;
   end;
 
@@ -758,19 +788,23 @@ begin
         LogFile  := TStringList.Create;
         LogFile.Add(URL);
         try
-          PersCapter(TBuff.Text);
+          NvStat := GetNovelStatus(TBuff.Text); // 小説の連載状況を取得
+          PersCapter(TBuff.Text);               // 小説の目次情報を取得
           if PageList.Count > 0 then
           begin
-            LoadEachPage;
+            LoadEachPage;                       // 小説各話情報を取得
             try
               TextPage.SaveToFile(Filename, TEncoding.UTF8);
               LogFile.SaveToFile(ChangeFileExt(FileName, '.log'), TEncoding.UTF8);
               Writeln(Filename + ' に保存しました.');
             except
+              ExitCode := -1;
               Writeln('ファイルの保存に失敗しました.');
             end;
-          end else
+          end else begin
             Writeln(URL + 'から小説情報を取得できませんでした.');
+            ExitCode := -1;
+          end;
         finally
           LogFile.Free;
           PageList.Free;
@@ -779,8 +813,10 @@ begin
       finally
         TBuff.Free;
       end;
-    end else
+    end else begin
       Writeln(URL + 'からページ情報を取得できませんでした.');
+      ExitCode := -1;
+    end;
   finally
     RBuff.Free;
   end;
