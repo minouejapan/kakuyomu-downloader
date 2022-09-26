@@ -6,6 +6,7 @@ Windows10上のコマンドプロンプト上で動作します。
 
 ### 実行ファイルの作り方
 Delphi (XE2以降)でkakuyomudl.dprを開いてビルドしてください。
+またはLazarus 2.2以降でkakuyomudl.lprを開いてビルドしてください。
 
 ### 使い方
 コマンドプロンプト上で、
