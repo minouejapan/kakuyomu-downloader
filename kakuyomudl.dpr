@@ -1,6 +1,10 @@
 ﻿(*
   カクヨム小説ダウンローダー[kakuyomudl]
 
+  2.3 2023/02/27  &#x????;にエンコードされている‼等のUnicode文字をデコードする処理を追加した
+                  識別タグの文字列長さを定数からLength(識別文字定数)に変更した
+  2.2 2022/12/29  見出しの青空文庫タグを変更した
+  2.1 2022/10/13  前書きの最後にある"…続きを読む"を削除するようにした
   2.0 2022/08/05  タイトル名の先頭に連載状況（連載中・完結）を追加するようにした
   1.9 2022/03/02  前書きに青空文庫タグがあることがあるため代替文字化処理を追加した
       2021/12/15  GitHubに上げるためソースコードを整理した
@@ -70,34 +74,6 @@ const
 
   SHEAD    = '<h3 class="heading-level2">目次</h3>';
 
-  ITITLEB  = 27;  // 小説表題
-  ITITLEE  = 4;
-  IAUTHERB = 43;  // 作者
-  IAUTHERE = 4;
-  IAUTHERG = 46;
-  IHEADERB = 22;  // 前書き
-  IHEADERE = 4;
-  //ISTRURLB = 52;
-  ISTRURLB = 31;
-  ISTRURLM = 9;
-  ISTRURLE = 2;
-  ISTTLB   = 73;
-  ISTTLE   = 7;
-  ICOVERB  = 31;
-  ICOVERE  = 1;
-
-  ICAPTB   = 66;
-  ICAPTE   = 7;
-  IEPISB   = 60;
-  IEPISE   = 4;
-  IBODYB   = 10;
-  IBODYM   = 1;
-  IBODYE   = 6;
-
-  IPICTB   = 10;
-  IPICTM   = 0;
-  IPICTE   = 13;
-
   // 青空文庫形式
   AO_RBI = '｜';							// ルビのかかり始め(必ずある訳ではない)
   AO_RBL = '《';              // ルビ始め
@@ -108,6 +84,14 @@ const
   AO_CPT = '」は大見出し］';	// 章
   AO_SEC = '」は中見出し］';  // 話
   AO_PRT = '」は小見出し］';
+
+  AO_CPB = '［＃大見出し］';        // 2022/12/28 こちらのタグに変更
+  AO_CPE = '［＃大見出し終わり］';
+  AO_SEB = '［＃中見出し］';
+  AO_SEE = '［＃中見出し終わり］';
+  AO_PRB = '［＃小見出し］';
+  AO_PRE = '［＃小見出し終わり］';
+
   AO_DAI = '［＃ここから';		// ブロックの字下げ開始
   AO_DAO = '［＃ここで字下げ終わり］';
   AO_DAN = '字下げ］';
@@ -317,11 +301,16 @@ begin
   Result := tmp;
 end;
 
-// HTML特殊文字の処理（エスケープ文字列→実際の文字）
+// HTML特殊文字の処理
+// 1)エスケープ文字列 → 実際の文字
+// 2)&#x????; → 通常の文字
 function Restore2RealChar(Base: string): string;
 var
-  tmp: string;
+  tmp, cd: string;
+  p, w: integer;
+  ch: Char;
 begin
+  // エスケープされた文字
   tmp := StringReplace(Base, '&lt;',      '<',  [rfReplaceAll]);
   tmp := StringReplace(tmp,  '&gt;',      '>',  [rfReplaceAll]);
   tmp := StringReplace(tmp,  '&quot;',    '"',  [rfReplaceAll]);
@@ -330,6 +319,18 @@ begin
   tmp := StringReplace(tmp,  '&brvbar;',  '|',  [rfReplaceAll]);
   tmp := StringReplace(tmp,  '&copy;',    '©',  [rfReplaceAll]);
   tmp := StringReplace(tmp,  '&amp;',     '&',  [rfReplaceAll]);
+  // &#x????;にエンコードされた文字をデコードする (2023/2/27)
+  p := Pos('&#x', tmp);
+  while p > 0 do
+  begin
+    Delete(tmp, p, 3);
+    cd := Copy(tmp, p, 4);
+    w := StrToInt('$' + cd);
+    ch := Char(w);
+    Delete(tmp, p, 5);
+    Insert(ch, tmp, p);
+    P := Pos('&#x', tmp);
+  end;
   Result := tmp;
 end;
 
@@ -343,12 +344,12 @@ begin
   p := Pos(SPICTB, Base);
   while p > 0 do
   begin
-    Delete(Base, p, IPICTB);
+    Delete(Base, p, Length(SPICTB));
     p2 := Pos(SPICTE, Base);
     if p2 > 1 then
     begin
       lnk := Copy(Base, p, p2 - p);
-      Delete(Base, p, p2 - p + IPICTE);
+      Delete(Base, p, p2 - p + Length(SPICTE));
       Insert(AO_PIE, Base, p);
       Insert(lnk, Base, p);
       Insert(AO_PIB, Base, p);
@@ -452,7 +453,7 @@ begin
   sp := Pos(SCAPTB, Page);  // 章(Chapter Level-1)をチェック
   if sp > 1 then
   begin
-    Delete(Page, 1, ICAPTB + sp - 1);
+    Delete(Page, 1, Length(SCAPTB) + sp - 1);
     ep := Pos(SCAPTE, Page);
     if ep > 1 then
     begin
@@ -462,13 +463,13 @@ begin
         capt := ''
       else
         Capter := capt;
-      Delete(Page, 1, ICAPTE + ep - 1);
+      Delete(Page, 1, Length(SCAPTE) + ep - 1);
     end;
   end;
   sp := Pos(SCAPTB2, Page);  // 章(Chapter Level-2)をチェック
   if sp > 1 then
   begin
-    Delete(Page, 1, ICAPTB + sp - 1);
+    Delete(Page, 1, Length(SCAPTB) + sp - 1);
     ep := Pos(SCAPTE, Page);
     if ep > 1 then
     begin
@@ -479,24 +480,24 @@ begin
         capt := ''
       else
         Capter := capt;
-      Delete(Page, 1, ICAPTE + ep - 1);
+      Delete(Page, 1, Length(SCAPTE) + ep - 1);
     end;
   end;
   sp := Pos(SEPISB, Page);  // 話(Episode)をチェック
   if sp > 1 then
   begin
-    Delete(Page, 1, IEPISB + sp - 1);
+    Delete(Page, 1, Length(SEPISB) + sp - 1);
     ep := Pos(SEPISE, Page);
     if ep > 1 then
     begin
       subt := Copy(Page, 1, ep - 1);
       subt := TrimSpace(subt);
       subt := Restore2RealChar(subt);
-      Delete(Page, 1, IEPISE + ep);
+      Delete(Page, 1, Length(SEPISE) + ep);
       sp := Pos(SBODYB, Page);
       if sp > 1 then
       begin
-        Delete(Page, 1, IBODYB + sp - 1);
+        Delete(Page, 1, Length(SBODYB) + sp - 1);
         sp := Pos(SBODYM, Page);
         if sp > 0 then
           Delete(Page, 1, sp);
@@ -514,7 +515,7 @@ begin
           body := Restore2RealChar(body); // エスケースされた特殊文字を本来の文字に変換する
 
           if Length(capt) > 1 then
-            TextPage.Add(AO_CPI + capt + AO_CPT);
+            TextPage.Add(AO_CPB + capt + AO_CPE);
 
           sp := Pos(SERRSTR, body);
           if (sp > 0) and (sp < 10) then
@@ -523,7 +524,7 @@ begin
             TextPage.Add('★HTMLページ読み込みエラー');
             Result := True;
           end else begin
-            TextPage.Add(AO_CPI + subt + AO_SEC);
+            TextPage.Add(AO_SEB + subt + AO_SEE);
             TextPage.Add(body);
             TextPage.Add('');
             TextPage.Add(AO_PB2);
@@ -599,9 +600,9 @@ begin
   sp := Pos(SCOVERB, MainPage);
   if sp > 0 then
   begin
-    ep := PosN(SCOVERE, MainPage, sp + ICOVERB);
+    ep := PosN(SCOVERE, MainPage, sp + Length(SCOVERB));
     if ep > 0 then
-      cover := Copy(MainPage, sp + ICOVERB, ep - sp - ICOVERB)
+      cover := Copy(MainPage, sp + Length(SCOVERB), ep - sp - Length(SCOVERB))
     else
       cover := '';
   end;
@@ -609,7 +610,7 @@ begin
   sp := Pos(STITLEB, MainPage);
   if sp > 0 then
   begin
-    Delete(MainPage, 1, sp + ITITLEB - 1);
+    Delete(MainPage, 1, sp + Length(STITLEB) - 1);
     // タイトルの前にあるリンク情報を削除する
     sp := Pos('">', MainPage);
     Delete(MainPage, 1, sp + 1);
@@ -629,18 +630,18 @@ begin
           Delete(fn, 27, Length(fn) - 26);
         Filename := Path + fn + '.txt';
       end;
-      // タイトル名タイトル名に"完結"が含まれていなければ先頭に小説の連載状況を追加する
+      // タイトル名に"完結"が含まれていなければ先頭に小説の連載状況を追加する
       if Pos('完結', title) = 0 then
-      	title := NvStat + title;
+        title := NvStat + title;
       // タイトル名を保存
       TextPage.Add(title);
       LogFile.Add('タイトル：' + title);
-      Delete(MainPage, 1, sp + ITITLEE);
+      Delete(MainPage, 1, sp + Length(STITLEE));
       // 作者名
       sp := Pos(SAUTHERB, MainPage);
       if sp > 1  then
       begin
-        Delete(MainPage, 1, sp + IAUTHERB - 1);
+        Delete(MainPage, 1, sp + Length(SAUTHERB) - 1);
         ep := Pos(SAUTHERE, MainPage);
         if ep > 1 then
         begin
@@ -650,7 +651,7 @@ begin
           auther := ts;
           sp := Pos(SAUTHERG, auther);
           if sp > 1 then
-            Delete(auther, sp, IAUTHERG);
+            Delete(auther, sp, Length(SAUTHERG));
           // 作者名を保存
           TextPage.Add(auther);
           // 表紙画像があればタグを挿入する
@@ -662,12 +663,12 @@ begin
           LogFile.Add('作者　　：' + auther);
           // #$0D#$0Aを削除する
           MainPage := ElimCRLF(MainPage);
-          Delete(MainPage, 1, ep + IAUTHERE);
+          Delete(MainPage, 1, ep + Length(SAUTHERE));
           // 前書き（あらすじ）
           sp := Pos(SHEADERB, MainPage);
           if sp > 1 then
           begin
-            Delete(MainPage, 1, sp + IHEADERB - 1);
+            Delete(MainPage, 1, sp + Length(SHEADERB) - 1);
             ep := Pos(SHEADERE, MainPage);
             if ep > 1 then
             begin
@@ -678,8 +679,10 @@ begin
               sp := Pos('<', ts);
               if sp > 1 then
                 Delete(ts, sp, Length(ts));
+              // 前書きの最後にある"…続きを読む"を削除する
+              ts := StringReplace(ts, '…続きを読む', '', [rfReplaceAll]);
               TextPage.Add(AO_KKL);
-              TextPage.Add(ChangeAozoraTag(ts));  // 前書きに《》を使いう作者がいたりして
+              TextPage.Add(ChangeAozoraTag(ts));  // 前書きに《》を使う作者がいたりして
               TextPage.Add(AO_KKR);
               TextPage.Add(AO_PB2);
               LogFile.Add('あらすじ：');
@@ -690,16 +693,16 @@ begin
           sp := Pos(SSTRURLB, MainPage);
           while sp > 1 do
           begin
-            Delete(MainPage, 1, sp + ISTRURLB - 1);
+            Delete(MainPage, 1, sp + Length(SSTRURLB) - 1);
             ep := Pos(SSTRURLM, MainPage);
             if ep >0 then
-              Delete(MainPage, 1, ep + ISTRURLM - 1);
+              Delete(MainPage, 1, ep + Length(SSTRURLM) - 1);
             ep := Pos(SSTRURLE, MainPage);
             if ep > 1 then
             begin
               ts := Copy(MainPage, 1, ep - 1);
               PageList.Add('https://kakuyomu.jp' + ts);
-              Delete(MainPage, 1, ep + ISTRURLE - 1);
+              Delete(MainPage, 1, ep + Length(SSTRURLE) - 1);
               sp := Pos(SSTRURLB, MainPage);
             end else
               Break;
@@ -743,7 +746,7 @@ begin
   if ParamCount = 0 then
   begin
     Writeln('');
-    Writeln('kakuyomudl ver2.0 2022/8/5 (c) INOUE, masahiro.');
+    Writeln('kakuyomudl ver2.3 2023/2/27 (c) INOUE, masahiro.');
     Writeln('  使用方法');
     Writeln('  kakuyomudl 小説トップページのURL [保存するファイル名(省略するとタイトル名で保存します)]');
     Exit;
