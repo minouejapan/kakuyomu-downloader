@@ -1,6 +1,7 @@
 ﻿(*
   カクヨム小説ダウンローダー[kakuyomudl]
 
+  2.4 2023/03/19  &#????;の処理を16進数2byte決め打ちから10進数でも変換できるように変更した
   2.3 2023/02/27  &#x????;にエンコードされている‼等のUnicode文字をデコードする処理を追加した
                   識別タグの文字列長さを定数からLength(識別文字定数)に変更した
   2.2 2022/12/29  見出しの青空文庫タグを変更した
@@ -301,13 +302,27 @@ begin
   Result := tmp;
 end;
 
+// Delphi XE2ではPos関数に検索開始位置を指定出来ないための代替え
+function PosN(SubStr, Str: string; StartPos: integer): integer;
+var
+  tmp: string;
+  p: integer;
+begin
+  tmp := Copy(Str, StartPos, Length(Str));
+  p := Pos(SubStr, tmp);
+  if p > 0 then
+    Result := p + StartPos - 1  // 1ベーススタートのため1を引く
+  else
+    Result := 0;
+end;
+
 // HTML特殊文字の処理
 // 1)エスケープ文字列 → 実際の文字
 // 2)&#x????; → 通常の文字
 function Restore2RealChar(Base: string): string;
 var
   tmp, cd: string;
-  p, w: integer;
+  p, p2, w: integer;
   ch: Char;
 begin
   // エスケープされた文字
@@ -319,18 +334,29 @@ begin
   tmp := StringReplace(tmp,  '&brvbar;',  '|',  [rfReplaceAll]);
   tmp := StringReplace(tmp,  '&copy;',    '©',  [rfReplaceAll]);
   tmp := StringReplace(tmp,  '&amp;',     '&',  [rfReplaceAll]);
-  // &#x????;にエンコードされた文字をデコードする (2023/2/27)
-  p := Pos('&#x', tmp);
+  // &#????;にエンコードされた文字をデコードする(2023/3/19)
+  p := Pos('&#', tmp);
   while p > 0 do
   begin
-    Delete(tmp, p, 3);
-    cd := Copy(tmp, p, 4);
-    w := StrToInt('$' + cd);
+    Delete(tmp, p, 2);
+    p2 := PosN(';', tmp, p);
+    if p2 = 0 then
+      Break;
+    cd := Copy(tmp, p, p2 - p);
+    Delete(tmp, p, p2 - p + 1);
+    // 16進数
+    if cd[1] = 'x' then
+    begin
+      Delete(cd, 1, 1);
+      w := StrToInt('$' + cd);
+    // 10進数
+    end else
+      w := StrToInt(cd);
     ch := Char(w);
-    Delete(tmp, p, 5);
     Insert(ch, tmp, p);
-    P := Pos('&#x', tmp);
+    p := Pos('&#', tmp);
   end;
+
   Result := tmp;
 end;
 
@@ -357,20 +383,6 @@ begin
     p := Pos(SPICTB, Base);
   end;
   Result := Base;
-end;
-
-// Delphi XE2ではPos関数に検索開始位置を指定出来ないための代替え
-function PosN(SubStr, Str: string; StartPos: integer): integer;
-var
-  tmp: string;
-  p: integer;
-begin
-  tmp := Copy(Str, StartPos, Length(Str));
-  p := Pos(SubStr, tmp);
-  if p > 0 then
-    Result := p + StartPos - 1  // 1ベーススタートのため1を引く
-  else
-    Result := 0;
 end;
 
 // 本文のリンクタグを除去する
@@ -746,7 +758,7 @@ begin
   if ParamCount = 0 then
   begin
     Writeln('');
-    Writeln('kakuyomudl ver2.3 2023/2/27 (c) INOUE, masahiro.');
+    Writeln('kakuyomudl ver2.4 2023/3/19 (c) INOUE, masahiro.');
     Writeln('  使用方法');
     Writeln('  kakuyomudl 小説トップページのURL [保存するファイル名(省略するとタイトル名で保存します)]');
     Exit;
