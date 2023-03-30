@@ -1,6 +1,7 @@
 ﻿(*
   カクヨム小説ダウンローダー[kakuyomudl]
 
+  2.5 2023/03/30  行の先頭に半角空白がある場合は除去する処理を追加した
   2.4 2023/03/19  &#????;の処理を16進数2byte決め打ちから10進数でも変換できるように変更した
   2.3 2023/02/27  &#x????;にエンコードされている‼等のUnicode文字をデコードする処理を追加した
                   識別タグの文字列長さを定数からLength(識別文字定数)に変更した
@@ -220,6 +221,9 @@ begin
       if p > 0 then
       begin
         Delete(tmp, 1, p + 1);
+        // 先頭の半角空白を除去する
+        while tmp[1] = ' ' do
+          Delete(tmp, 1, 1);
         tmplist[i] := tmp;
       end;
     end;
@@ -266,6 +270,17 @@ begin
   Result := StringReplace(Base, '<br />', #13#10, [rfReplaceAll]);
 end;
 
+// 本文の青空文庫ルビ指定に用いられる文字があった場合誤作動しないように青空文庫代替表記に変換する(2022/3/25)
+function ChangeAozoraTag(Base: string): string;
+var
+  tmp: string;
+begin
+  tmp := StringReplace(Base, '《', '※［＃始め二重山括弧、1-1-52］',  [rfReplaceAll]);
+  tmp := StringReplace(tmp,  '》', '※［＃終わり二重山括弧、1-1-53］',  [rfReplaceAll]);
+  tmp := StringReplace(tmp,  '｜', '※［＃縦線、1-1-35］',   [rfReplaceAll]);
+  Result := tmp;
+end;
+(*
 // 本文の青空文庫ルビ指定に用いられる文字があった場合誤作動しないように代替文字に変換する
 function ChangeAozoraTag(Base: string): string;
 var
@@ -276,7 +291,7 @@ begin
   tmp := StringReplace(tmp,  '｜', '‖',  [rfReplaceAll]);
   Result := tmp;
 end;
-
+*)
 // 本文のルビタグを青空文庫形式に変換する
 function ChangeRuby(Base: string): string;
 var
@@ -521,7 +536,6 @@ begin
           body := Delete_href(body);      // 本文中のリンクタグを除去する
           body := ChangeURL(body);        // ベタ書きURLをリンクタグに変換する
           body := ElimBodyTag(body);      // 本文内の整形タグを削除する（カクヨム限定）
-          //body := ChangeAozoraTag(body);  // 青空文庫のルビタグ文字｜《》を変換する
           body := ChangeRuby(body);       // ルビのタグを変換する
           body := ChangeImage(body);      // 埋め込み画像リンクを変換する
           body := Restore2RealChar(body); // エスケースされた特殊文字を本来の文字に変換する
@@ -758,7 +772,7 @@ begin
   if ParamCount = 0 then
   begin
     Writeln('');
-    Writeln('kakuyomudl ver2.4 2023/3/19 (c) INOUE, masahiro.');
+    Writeln('kakuyomudl ver2.5 2023/3/30 (c) INOUE, masahiro.');
     Writeln('  使用方法');
     Writeln('  kakuyomudl 小説トップページのURL [保存するファイル名(省略するとタイトル名で保存します)]');
     Exit;
