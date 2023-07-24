@@ -1,6 +1,9 @@
 ﻿(*
   カクヨム小説ダウンローダー[kakuyomudl]
 
+  2.8 2023/07/24  オプション引数確認処理を変更し、DL開始ページ指定オプション-sを追加した
+  2.7 2023/06/24  LoadFromHTMLが取得したHTMLを直接返すようにした
+  2.6 2023/05/07  作者ページURL取得を追加した
   2.5 2023/03/30  行の先頭に半角空白がある場合は除去する処理を追加した
   2.4 2023/03/19  &#????;の処理を16進数2byte決め打ちから10進数でも変換できるように変更した
   2.3 2023/02/27  &#x????;にエンコードされている‼等のUnicode文字をデコードする処理を追加した
@@ -29,6 +32,8 @@ program kakuyomudl;
 {$APPTYPE CONSOLE}
 
 {$R *.res}
+
+
 
 {$R *.dres}
 
@@ -122,55 +127,65 @@ var
   PageList,
   TextPage,
   LogFile: TStringList;
-  Capter, URL, Path, FileName, NvStat, strhdl: string;
-  RBuff: TMemoryStream;
-  TBuff: TStringList;
+  TextLine,
+  Capter, URL, Path, FileName,
+  NvStat, StartPage: string;
   hWnd: THandle;
   CDS: TCopyDataStruct;
+  StartN: integer;
 
 
 // WinINetを用いたHTMLファイルのダウンロード
-function LoadFromHTML(URLadr: string; var RBuff: TMemoryStream): boolean;
+function LoadFromHTML(URLadr: string): string;
 var
   hSession    : HINTERNET;
   hService    : HINTERNET;
   dwBytesRead : DWORD;
   dwFlag      : DWORD;
   lpBuffer    : PChar;
+  RBuff       : TMemoryStream;
+  TBuff       : TStringList;
 begin
-  Result   := True;
+  Result   := '';
   hSession := InternetOpen('WinINet', INTERNET_OPEN_TYPE_PRECONFIG, nil, nil, 0);
-  RBuff.Clear;
-  RBuff.Position := 0;
 
-  if Assigned(hSession) then begin
+  if Assigned(hSession) then
+  begin
     dwFlag   := INTERNET_FLAG_RELOAD;
     hService := InternetOpenUrl(hSession, PChar(URLadr), nil, 0, dwFlag, 0);
     if Assigned(hService ) then
     begin
-      lpBuffer := AllocMem(65536);
+      RBuff := TMemoryStream.Create;
       try
-        dwBytesRead := 65535;
-        while True do
-        begin
-          if InternetReadFile(hService, lpBuffer, 65535,{SizeOf(lpBuffer),}dwBytesRead) then
+        lpBuffer := AllocMem(65536);
+        try
+          dwBytesRead := 65535;
+          while True do
           begin
-            if dwBytesRead = 0 then
+            if InternetReadFile(hService, lpBuffer, 65535,{SizeOf(lpBuffer),}dwBytesRead) then
+            begin
+              if dwBytesRead = 0 then
+                break;
+              RBuff.WriteBuffer(lpBuffer^, dwBytesRead);
+            end else
               break;
-            RBuff.WriteBuffer(lpBuffer^, dwBytesRead);
-          end else begin
-            Result := False;
-            break;
           end;
+        finally
+          FreeMem(lpBuffer);
+        end;
+        TBuff := TStringList.Create;
+        try
+          RBuff.Position := 0;
+          TBuff.LoadFromStream(RBuff, TEncoding.UTF8);
+          Result := TBuff.Text;
+        finally
+          TBuff.Free;
         end;
       finally
-        FreeMem(lpBuffer);
+        RBuff.Free;
       end;
     end;
     InternetCloseHandle(hService);
-    RBuff.Position := 0;    // ポジションをリセット
-  end else begin
-    Result := False;
   end;
 end;
 
@@ -466,7 +481,7 @@ begin
 end;
 
 // 小説本文をHTMLから抜き出して整形する
-function PersPage(Page: string): Boolean;
+function ParsePage(Page: string): Boolean;
 var
   sp, ep: integer;
   capt, subt, body: string;
@@ -565,49 +580,39 @@ end;
 // 各話URLリストをもとに各話ページを読み込んで本文を取り出す
 procedure LoadEachPage;
 var
-  i, n, cnt: integer;
-  RBuff: TMemoryStream;
-  TBuff: TStringList;
+  i, n, cnt, sc: integer;
+  line: string;
   CSBI: TConsoleScreenBufferInfo;
   CCI: TConsoleCursorInfo;
   hCOutput: THandle;
 begin
-  RBuff := TMemoryStream.Create;
-  try
-    TBuff := TStringList.Create;
-    try
-      i := 0;
-      n := 1;
-      cnt := PageList.Count;
-      hCOutput := GetStdHandle(STD_OUTPUT_HANDLE);
-      GetConsoleScreenBufferInfo(hCOutput, CSBI);
-      GetConsoleCursorInfo(hCOutput, CCI);
-      Write('各話を取得中 [  0/' + Format('%3d', [cnt]) + ']');
-      CCI.bVisible := False;
-      SetConsoleCursorInfo(hCoutput, CCI);
-      while i < cnt do
-      begin
-        RBuff.Clear;
-        if LoadFromHTML(PageList.Strings[i], RBuff) then
-        begin
-          RBuff.Position := 0;
-          TBuff.Clear;
-          TBuff.WriteBOM := False;
-          TBuff.LoadFromStream(RBuff, TEncoding.UTF8);
-          PersPage(TBuff.Text);
-          SetConsoleCursorPosition(hCOutput, CSBI.dwCursorPosition);
-          Write('各話を取得中 [' + Format('%3d', [n]) + '/' + Format('%3d', [cnt]) + '(' + Format('%d', [(n * 100) div cnt]) + '%)]');
-          if hWnd <> 0 then
-            SendMessage(hWnd, WM_DLINFO, n, 1);
-        end;
-        Inc(i);
-        Inc(n);
-      end;
-    finally
-      TBuff.Free;
+  cnt := PageList.Count;
+  hCOutput := GetStdHandle(STD_OUTPUT_HANDLE);
+  GetConsoleScreenBufferInfo(hCOutput, CSBI);
+  GetConsoleCursorInfo(hCOutput, CCI);
+  Write('各話を取得中 [  0/' + Format('%3d', [cnt]) + ']');
+  CCI.bVisible := False;
+  SetConsoleCursorInfo(hCoutput, CCI);
+  if StartN > 0 then
+    i := StartN - 1
+  else
+    i := 0;
+  n := 1;
+  sc := cnt - i;
+
+  while i < cnt do
+  begin
+    line := LoadFromHTML(PageList.Strings[i]);
+    if line <> '' then
+    begin
+      ParsePage(line);
+      SetConsoleCursorPosition(hCOutput, CSBI.dwCursorPosition);
+      Write('各話を取得中 [' + Format('%3d', [i + 1]) + '/' + Format('%3d', [cnt]) + '(' + Format('%d', [(n * 100) div sc]) + '%)]');
+      if hWnd <> 0 then
+        SendMessage(hWnd, WM_DLINFO, n, 1);
     end;
-  finally
-    RBuff.Free;
+    Inc(i);
+    Inc(n);
   end;
   CCI.bVisible := True;
   SetConsoleCursorInfo(hCoutput, CCI);
@@ -615,7 +620,7 @@ begin
 end;
 
 // トップページからタイトル、作者、前書き、各話情報を取り出す
-procedure PersCapter(MainPage: string);
+procedure ParseCapter(MainPage: string);
 var
   sp, ep: integer;
   ss, ts, title, auther, cover, fn, sendstr: string;
@@ -647,13 +652,15 @@ begin
       while (ss[1] <= ' ') do
         Delete(ss, 1, 1);
       // タイトル名からファイル名に使用できない文字を除去する
-      title := PathFilter(ss);
+      title := PathFilter(Restore2RealChar(ss));
       // 引数に保存するファイル名を指定していなかった場合、タイトル名からファイル名を作成する
       if Length(Filename) = 0 then
       begin
         fn := title;
         if Length(fn) > 26 then
           Delete(fn, 27, Length(fn) - 26);
+        if StartPage <> '' then
+          fn := fn + '(' + StartPage + ')';
         Filename := Path + fn + '.txt';
       end;
       // タイトル名に"完結"が含まれていなければ先頭に小説の連載状況を追加する
@@ -739,7 +746,7 @@ begin
           begin
             conhdl := GetStdHandle(STD_OUTPUT_HANDLE);
             sendstr := title + ',' + auther;
-            Cds.dwData := PageList.Count;
+            Cds.dwData := PageList.Count - StartN;
             Cds.cbData := (Length(sendstr) + 1) * SizeOf(Char);
             Cds.lpData := Pointer(sendstr);
             SendMessage(hWnd, WM_COPYDATA, conhdl, LPARAM(Addr(Cds)));
@@ -768,34 +775,65 @@ begin
   end;
 end;
 
+var
+  i: integer;
+  op: string;
+
 begin
   if ParamCount = 0 then
   begin
     Writeln('');
-    Writeln('kakuyomudl ver2.5 2023/3/30 (c) INOUE, masahiro.');
+    Writeln('kakuyomudl ver2.8 2023/7/24 (c) INOUE, masahiro.');
     Writeln('  使用方法');
-    Writeln('  kakuyomudl 小説トップページのURL [保存するファイル名(省略するとタイトル名で保存します)]');
+    Writeln('  kakuyomudl [-sDL開始ページ番号] 小説トップページのURL [保存するファイル名(省略するとタイトル名で保存します)]');
     Exit;
   end;
-  ExitCode := 0;
-  hWnd := 0;
+  ExitCode  := 0;
+  hWnd      := 0;
+  StartN    := 0;  // 開始ページ番号(0スタート)
+  FileName  := '';
+  StartPage := '';
 
   Path := ExtractFilePath(ParamStr(0));
-  URL := ParamStr(1);
-  if ParamCount > 1 then
+  // オプション引数取得
+  for i := 0 to ParamCount - 1 do
   begin
-    FileName := ParamStr(2);
-    if ParamCount = 3 then
+    op := ParamStr(i + 1);
+    // Naro2mobiのWindowsハンドル
+    if Pos('-h', op) = 1 then
     begin
-      strhdl := ParamStr(3);
-      if Pos('-h', strhdl) = 1 then
-      begin
-        Delete(strhdl, 1, 2);
-        hWnd := StrToInt(strhdl);
+      Delete(op, 1, 2);
+      try
+        hWnd := StrToInt(op);
+      except
+        Writeln('Error: Invalid Naro2mobi Handle.');
+        ExitCode := -1;
+        Exit;
       end;
+    // DL開始ページ番号
+    end else if Pos('-s', op) = 1 then
+    begin
+      Delete(op, 1, 2);
+      StartPage := op;
+      try
+        StartN := StrToInt(op);
+      except
+        Writeln('Error: Invalid Start Page Number.');
+        ExitCode := -1;
+        Exit;
+      end;
+    // 作品URL
+    end else if Pos('https:', op) = 1 then
+    begin
+      URL := op;
+    // それ以外であれば保存ファイル名
+    end else begin
+      FileName := op;
+      if UpperCase(ExtractFileExt(op)) <> '.TXT' then
+        FileName := FileName + '.txt';
     end;
-  end else
-    FileName := '';
+  end;
+
   if Pos('https://kakuyomu.jp/works/', URL) = 0 then
   begin
     Writeln('小説のURLが違います.');
@@ -804,50 +842,38 @@ begin
   end;
 
   Capter := '';
-  RBuff  := TMemoryStream.Create;
-  try
-    if LoadFromHTML(URL, RBuff) then
-    begin
-      TBuff := TStringList.Create;
-      try
-        RBuff.Position := 0;
-        TBuff.WriteBOM := False;
-        TBuff.LoadFromStream(RBuff, TEncoding.UTF8);
-        PageList := TStringList.Create;
-        TextPage := TStringList.Create;
-        LogFile  := TStringList.Create;
-        LogFile.Add(URL);
+  TextLine := LoadFromHTML(URL);
+  if TextLine <> '' then
+  begin
+    PageList := TStringList.Create;
+    TextPage := TStringList.Create;
+    LogFile  := TStringList.Create;
+    LogFile.Add(URL);
+    try
+      NvStat := GetNovelStatus(TextLine);       // 小説の連載状況を取得
+      ParseCapter(TextLine);                    // 小説の目次情報を取得
+      if PageList.Count >= StartN then
+      begin
+        LoadEachPage;                           // 小説各話情報を取得
         try
-          NvStat := GetNovelStatus(TBuff.Text); // 小説の連載状況を取得
-          PersCapter(TBuff.Text);               // 小説の目次情報を取得
-          if PageList.Count > 0 then
-          begin
-            LoadEachPage;                       // 小説各話情報を取得
-            try
-              TextPage.SaveToFile(Filename, TEncoding.UTF8);
-              LogFile.SaveToFile(ChangeFileExt(FileName, '.log'), TEncoding.UTF8);
-              Writeln(Filename + ' に保存しました.');
-            except
-              ExitCode := -1;
-              Writeln('ファイルの保存に失敗しました.');
-            end;
-          end else begin
-            Writeln(URL + 'から小説情報を取得できませんでした.');
-            ExitCode := -1;
-          end;
-        finally
-          LogFile.Free;
-          PageList.Free;
-          TextPage.Free;
+          TextPage.SaveToFile(Filename, TEncoding.UTF8);
+          LogFile.SaveToFile(ChangeFileExt(FileName, '.log'), TEncoding.UTF8);
+          Writeln(Filename + ' に保存しました.');
+        except
+          ExitCode := -1;
+          Writeln('ファイルの保存に失敗しました.');
         end;
-      finally
-        TBuff.Free;
+      end else begin
+        Writeln(URL + 'から小説情報を取得できませんでした.');
+        ExitCode := -1;
       end;
-    end else begin
-      Writeln(URL + 'からページ情報を取得できませんでした.');
-      ExitCode := -1;
+    finally
+      LogFile.Free;
+      PageList.Free;
+      TextPage.Free;
     end;
-  finally
-    RBuff.Free;
+  end else begin
+    Writeln(URL + 'からページ情報を取得できませんでした.');
+    ExitCode := -1;
   end;
 end.
