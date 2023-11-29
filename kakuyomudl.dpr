@@ -1,6 +1,8 @@
 ﻿(*
   カクヨム小説ダウンローダー[kakuyomudl]
 
+  3.0 2023/11/29  作品トップページの構造が大きく変わったことに対応するため修正した
+  2.9 2023/07/30  DL開始ページを指定した場合のNaro2mobiに送るDLページ数が1少なかった不具合を修正した
   2.8 2023/07/24  オプション引数確認処理を変更し、DL開始ページ指定オプション-sを追加した
   2.7 2023/06/24  LoadFromHTMLが取得したHTMLを直接返すようにした
   2.6 2023/05/07  作者ページURL取得を追加した
@@ -33,34 +35,28 @@ program kakuyomudl;
 
 {$R *.res}
 
-
-
 {$R *.dres}
 
 uses
   System.SysUtils,
   System.Classes,
+  System.RegularExpressions,
   Windows,
   WinInet,
   WinAPI.Messages;
 
 const
   // データ抽出用の識別タグ
-  STITLEB  = '<h1 id="workTitle"><a href=';     // 小説表題
-  STITLEE  = '</a>';
-  SAUTHERB = '<span id="workAuthor-activityName"><a href=';   // 作者
+  STITLEB  = '<h1 .*?><.*?><a title="';     // 小説表題
+  STITLEE  = '" href=';
+  SAUTHERB = '<div class="partialGiftWidgetActivityName"><a href="';   // 作者
+  SAUTHERM = '" .*?>';
   SAUTHERE = '</a>';
-  SAUTHERG = '<i class="icon-official" title="Official"></i>';
-  SHEADERB = 'js-work-introduction">'; // 前書き
-  SHEADERE = '</p>';
-  SCOVERB  = '<div id="coverImage"><img src="';
-  SCOVERE  = '"';
-
-  SSTRURLB = '<li class="widget-toc-episode">';  // 各話リンクURL
-  SSTRURLM = '<a href="';
-  SSTRURLE = '" ';
-  SSTTLB   = '<span class="widget-toc-episode-titleLabel js-vertical-composition-item">';
-  SSTTLE   = '</span>';
+  SHEADERB = '"introduction":"'; // 前書き
+  SHEADERE = '",';
+  SSTRURLB = '{"__typename":"Episode","id":"';  // 各話リンクURL
+  SSTRURLE = '","title":"';
+  SSTTLE   = '",';
 
   SCAPTB   = '<p class="chapterTitle level1 js-vertical-composition-item"><span>';
   SCAPTB2   = '<p class="chapterTitle level2 js-vertical-composition-item"><span>';
@@ -290,7 +286,9 @@ function ChangeAozoraTag(Base: string): string;
 var
   tmp: string;
 begin
-  tmp := StringReplace(Base, '《', '※［＃始め二重山括弧、1-1-52］',  [rfReplaceAll]);
+  tmp := StringReplace(Base, '<rp>《</rp>', '<rp>(</rp>', [rfReplaceAll]);
+  tmp := StringReplace(tmp,  '<rp>》</rp>', '<rp>)</rp>', [rfReplaceAll]);
+  tmp := StringReplace(tmp, '《', '※［＃始め二重山括弧、1-1-52］',  [rfReplaceAll]);
   tmp := StringReplace(tmp,  '》', '※［＃終わり二重山括弧、1-1-53］',  [rfReplaceAll]);
   tmp := StringReplace(tmp,  '｜', '※［＃縦線、1-1-35］',   [rfReplaceAll]);
   Result := tmp;
@@ -623,28 +621,17 @@ end;
 procedure ParseCapter(MainPage: string);
 var
   sp, ep: integer;
-  ss, ts, title, auther, cover, fn, sendstr: string;
+  ss, ts, title, auther, authurl, fn, sendstr: string;
+  m: TMatch;
   conhdl: THandle;
 begin
   Write('小説情報を取得中 ' + URL + ' ... ');
-  // 表紙画像
-  sp := Pos(SCOVERB, MainPage);
-  if sp > 0 then
-  begin
-    ep := PosN(SCOVERE, MainPage, sp + Length(SCOVERB));
-    if ep > 0 then
-      cover := Copy(MainPage, sp + Length(SCOVERB), ep - sp - Length(SCOVERB))
-    else
-      cover := '';
-  end;
   // タイトル名
-  sp := Pos(STITLEB, MainPage);
-  if sp > 0 then
+  m := TRegEx.Match(MainPage, STITLEB);
+  sp := m.Index;
+  if sp > 1 then
   begin
-    Delete(MainPage, 1, sp + Length(STITLEB) - 1);
-    // タイトルの前にあるリンク情報を削除する
-    sp := Pos('">', MainPage);
-    Delete(MainPage, 1, sp + 1);
+    Delete(MainPage, 1, sp + m.Length - 1);
     sp := Pos(STITLEE, MainPage);
     if sp > 1 then
     begin
@@ -670,43 +657,49 @@ begin
       TextPage.Add(title);
       LogFile.Add('タイトル：' + title);
       Delete(MainPage, 1, sp + Length(STITLEE));
-      // 作者名
+      authurl := '';
+      // 作者URL
       sp := Pos(SAUTHERB, MainPage);
       if sp > 1  then
       begin
         Delete(MainPage, 1, sp + Length(SAUTHERB) - 1);
-        ep := Pos(SAUTHERE, MainPage);
+        m := TRegEx.Match(MainPage, SAUTHERM);
+        ep := m.Index;
         if ep > 1 then
         begin
           ts := Copy(MainPage, 1, ep - 1);
-          sp := Pos('">', ts);
-          Delete(ts, 1, sp + 1);
-          auther := ts;
-          sp := Pos(SAUTHERG, auther);
-          if sp > 1 then
-            Delete(auther, sp, Length(SAUTHERG));
+          authurl := 'https://kakuyomu.jp' + ts;  // 作者URL
+          Delete(MainPage, 1, ep + m.Length - 1);
+          ep := Pos(SAUTHERE, MainPage);
+          if ep > 1 then
+          begin
+            auther := Copy(MainPage, 1, ep - 1);
+            Delete(MainPage, 1, ep + Length(SAUTHERE));
+          end;
           // 作者名を保存
           TextPage.Add(auther);
-          // 表紙画像があればタグを挿入する
-          if cover <> '' then
-            TextPage.Add(AO_CVB + cover + AO_CVE);
           TextPage.Add('');
           TextPage.Add(AO_PB2);
           TextPage.Add('');
           LogFile.Add('作者　　：' + auther);
+          if authurl <> '' then
+            LogFile.Add('作者URL : ' + authurl);
           // #$0D#$0Aを削除する
           MainPage := ElimCRLF(MainPage);
           Delete(MainPage, 1, ep + Length(SAUTHERE));
           // 前書き（あらすじ）
-          sp := Pos(SHEADERB, MainPage);
+          m := TRegEx.Match(MainPage, SHEADERB);
+          sp := m.Index;
           if sp > 1 then
           begin
-            Delete(MainPage, 1, sp + Length(SHEADERB) - 1);
-            ep := Pos(SHEADERE, MainPage);
+            // 省略されていない前書きはソースの一番下にあるためコピーを作って作業する
+            ts := Copy(MainPage, sp + Length(SHEADERB), Length(MainPage));
+            ep := Pos(SHEADERE, ts);
             if ep > 1 then
             begin
-              ts := Copy(MainPage, 1, ep - 1);
-              ts := ChangeBRK(ts);
+              ts := Copy(ts, 1, ep - 1);
+              // あらすじ部分の改行が\n表記となったため直接CRLFに置換する
+              ts := StringReplace(ts, '\n', CRLF, [rfReplaceAll]);
               ts := ElimTag(ts);
               // 余分なタグを除去する
               sp := Pos('<', ts);
@@ -727,14 +720,11 @@ begin
           while sp > 1 do
           begin
             Delete(MainPage, 1, sp + Length(SSTRURLB) - 1);
-            ep := Pos(SSTRURLM, MainPage);
-            if ep >0 then
-              Delete(MainPage, 1, ep + Length(SSTRURLM) - 1);
             ep := Pos(SSTRURLE, MainPage);
             if ep > 1 then
             begin
               ts := Copy(MainPage, 1, ep - 1);
-              PageList.Add('https://kakuyomu.jp' + ts);
+              PageList.Add(URL + '/episodes/' + ts);
               Delete(MainPage, 1, ep + Length(SSTRURLE) - 1);
               sp := Pos(SSTRURLB, MainPage);
             end else
@@ -746,7 +736,7 @@ begin
           begin
             conhdl := GetStdHandle(STD_OUTPUT_HANDLE);
             sendstr := title + ',' + auther;
-            Cds.dwData := PageList.Count - StartN;
+            Cds.dwData := PageList.Count - StartN + 1;
             Cds.cbData := (Length(sendstr) + 1) * SizeOf(Char);
             Cds.lpData := Pointer(sendstr);
             SendMessage(hWnd, WM_COPYDATA, conhdl, LPARAM(Addr(Cds)));
@@ -761,13 +751,13 @@ end;
 function GetNovelStatus(MainPage: string): string;
 var
   str: string;
-  p: integer;
+  m: TMatch;
 begin
   Result := '';
-  p := Pos(SHEAD, MainPage);
-  if p > 0 then
+  m := TRegEx.Match(MainPage, '</li></ul><ul class=.*?><li class=.*?><div class=.*?>');
+  if m.Index > 1 then
   begin
-    str := Copy(MainPage, p, 200);
+    str := Copy(MainPage, m.Index + m.Length, 20);
     if Pos('連載中', str) > 0 then
       Result := '【連載中】'
     else if Pos('完結', str) > 0 then
@@ -783,7 +773,7 @@ begin
   if ParamCount = 0 then
   begin
     Writeln('');
-    Writeln('kakuyomudl ver2.8 2023/7/24 (c) INOUE, masahiro.');
+    Writeln('kakuyomudl ver3.0 2023/11/29 (c) INOUE, masahiro.');
     Writeln('  使用方法');
     Writeln('  kakuyomudl [-sDL開始ページ番号] 小説トップページのURL [保存するファイル名(省略するとタイトル名で保存します)]');
     Exit;
