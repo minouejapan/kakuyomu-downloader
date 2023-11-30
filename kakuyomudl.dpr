@@ -1,6 +1,8 @@
 ﻿(*
   カクヨム小説ダウンローダー[kakuyomudl]
 
+  3.1 2023/11/30  作品の進捗状況をうまく取得出来ていなかった不具合を修正した
+                  ダウンロードを安定させるため各話ページDL毎に0.5秒のインターバルを追加した
   3.0 2023/11/29  作品トップページの構造が大きく変わったことに対応するため修正した
   2.9 2023/07/30  DL開始ページを指定した場合のNaro2mobiに送るDLページ数が1少なかった不具合を修正した
   2.8 2023/07/24  オプション引数確認処理を変更し、DL開始ページ指定オプション-sを追加した
@@ -608,6 +610,8 @@ begin
       Write('各話を取得中 [' + Format('%3d', [i + 1]) + '/' + Format('%3d', [cnt]) + '(' + Format('%d', [(n * 100) div sc]) + '%)]');
       if hWnd <> 0 then
         SendMessage(hWnd, WM_DLINFO, n, 1);
+      // ダウンロードを安定させるために0.5秒のインターバルを入れる
+      Sleep(500);
     end;
     Inc(i);
     Inc(n);
@@ -754,13 +758,13 @@ var
   m: TMatch;
 begin
   Result := '';
-  m := TRegEx.Match(MainPage, '</li></ul><ul class=.*?><li class=.*?><div class=.*?>');
+  m := TRegEx.Match(MainPage, '<ul class=.*?><li class=.*?><div class=.*?>.*?<!-- --> 全<!-- -->');
   if m.Index > 1 then
   begin
-    str := Copy(MainPage, m.Index + m.Length, 20);
+    str := Copy(MainPage, m.Index, m.Length);
     if Pos('連載中', str) > 0 then
       Result := '【連載中】'
-    else if Pos('完結', str) > 0 then
+    else if Pos('完結済', str) > 0 then
       Result := '【完結】';
   end;
 end;
@@ -773,7 +777,7 @@ begin
   if ParamCount = 0 then
   begin
     Writeln('');
-    Writeln('kakuyomudl ver3.0 2023/11/29 (c) INOUE, masahiro.');
+    Writeln('kakuyomudl ver3.1 2023/11/30 (c) INOUE, masahiro.');
     Writeln('  使用方法');
     Writeln('  kakuyomudl [-sDL開始ページ番号] 小説トップページのURL [保存するファイル名(省略するとタイトル名で保存します)]');
     Exit;
