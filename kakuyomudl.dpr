@@ -1,6 +1,7 @@
 ﻿(*
   カクヨム小説ダウンローダー[kakuyomudl]
 
+  3.2 2024/03/09  &#x????;にエンコードされているUnicode文字の一部がデコード出来ずにエラーが発生する不具合を修正した
   3.1 2023/11/30  作品の進捗状況をうまく取得出来ていなかった不具合を修正した
                   ダウンロードを安定させるため各話ページDL毎に0.5秒のインターバルを追加した
   3.0 2023/11/29  作品トップページの構造が大きく変わったことに対応するため修正した
@@ -354,6 +355,7 @@ var
   tmp, cd: string;
   p, p2, w: integer;
   ch: Char;
+  m: TMatch;
 begin
   // エスケープされた文字
   tmp := StringReplace(Base, '&lt;',      '<',  [rfReplaceAll]);
@@ -365,28 +367,25 @@ begin
   tmp := StringReplace(tmp,  '&copy;',    '©',  [rfReplaceAll]);
   tmp := StringReplace(tmp,  '&amp;',     '&',  [rfReplaceAll]);
   // &#????;にエンコードされた文字をデコードする(2023/3/19)
-  p := Pos('&#', tmp);
-  while p > 0 do
+  // 正規表現による処理に変更した(2024/3/9)
+  m := TRegEx.Match(tmp, '&#.*?;');
+  while m.Index > 1 do
   begin
-    Delete(tmp, p, 2);
-    p2 := PosN(';', tmp, p);
-    if p2 = 0 then
-      Break;
-    cd := Copy(tmp, p, p2 - p);
-    Delete(tmp, p, p2 - p + 1);
-    // 16進数
-    if cd[1] = 'x' then
-    begin
-      Delete(cd, 1, 1);
-      w := StrToInt('$' + cd);
-    // 10進数
-    end else
+    Delete(tmp, m.Index, m.Length);
+    cd := m.Value;
+    Delete(cd, 1, 2);           // &#を削除する
+    Delete(cd, Length(cd), 1);  // 最後の;を削除する
+    if cd[1] = 'x' then         // 先頭が16進数を表すxであればDelphiの16進数接頭文字$に変更する
+      cd[1] := '$';
+    try
       w := StrToInt(cd);
-    ch := Char(w);
-    Insert(ch, tmp, p);
-    p := Pos('&#', tmp);
+      ch := Char(w);
+    except
+      ch := '？';
+    end;
+    Insert(ch, tmp, m.Index);
+    m := TRegEx.Match(tmp, '&#.*?;');
   end;
-
   Result := tmp;
 end;
 
@@ -611,7 +610,7 @@ begin
       if hWnd <> 0 then
         SendMessage(hWnd, WM_DLINFO, n, 1);
       // ダウンロードを安定させるために0.5秒のインターバルを入れる
-      Sleep(500);
+      Sleep(200);
     end;
     Inc(i);
     Inc(n);
