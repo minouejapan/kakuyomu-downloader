@@ -1,6 +1,10 @@
 ﻿(*
   カクヨム小説ダウンローダー[kakuyomudl]
 
+  3.3 2024/03/18  挿絵画像のURL抽出が不完全だった不具合を修正した
+                  本文の最初が挿絵の場合に本文を抽出出来ない不具合を修正した
+                  本文中のURLをリンク化する処理を廃止した
+                  いくつかの置換処理を正規表現処理に変更した
   3.2 2024/03/09  &#x????;にエンコードされているUnicode文字の一部がデコード出来ずにエラーが発生する不具合を修正した
   3.1 2023/11/30  作品の進捗状況をうまく取得出来ていなかった不具合を修正した
                   ダウンロードを安定させるため各話ページDL毎に0.5秒のインターバルを追加した
@@ -67,6 +71,7 @@ const
   SEPISB   = '<p class="widget-episodeTitle js-vertical-composition-item">';
   SEPISE   = '</p>';
   SBODYB   = '<p id="p1"';
+  SBODYB2   = '<figure id="p1"';
   SBODYM   = '>';
   SBODYE   = '</div>';
 
@@ -196,20 +201,9 @@ end;
 
 // 前書き内のタグを削除する（カクヨム限定）
 function ElimTag(Base: string): string;
-var
-  ps, pe: integer;
 begin
-  ps := Pos('<', Base);
-  while ps > 0 do
-  begin
-    pe := Pos('>', Base);
-    if pe > ps then
-    begin
-      Delete(Base, ps, pe - ps + 1);
-      ps := Pos('<', Base);
-    end else
-      ps := 0;
-  end;
+  Base := TRegEx.Replace(Base, '<.*?>', '');
+
   Result := Base;
 end;
 
@@ -296,18 +290,7 @@ begin
   tmp := StringReplace(tmp,  '｜', '※［＃縦線、1-1-35］',   [rfReplaceAll]);
   Result := tmp;
 end;
-(*
-// 本文の青空文庫ルビ指定に用いられる文字があった場合誤作動しないように代替文字に変換する
-function ChangeAozoraTag(Base: string): string;
-var
-  tmp: string;
-begin
-  tmp := StringReplace(Base, '《', '『',  [rfReplaceAll]);
-  tmp := StringReplace(tmp,  '》', '』',  [rfReplaceAll]);
-  tmp := StringReplace(tmp,  '｜', '‖',  [rfReplaceAll]);
-  Result := tmp;
-end;
-*)
+
 // 本文のルビタグを青空文庫形式に変換する
 function ChangeRuby(Base: string): string;
 var
@@ -392,25 +375,10 @@ end;
 // 埋め込まれた画像リンクを青空文庫形式に変換する
 // 但し、画像ファイルはダウンロードせずにリンク先をそのまま埋め込む
 function ChangeImage(Base: string): string;
-var
-  p, p2: integer;
-  lnk: string;
 begin
-  p := Pos(SPICTB, Base);
-  while p > 0 do
-  begin
-    Delete(Base, p, Length(SPICTB));
-    p2 := Pos(SPICTE, Base);
-    if p2 > 1 then
-    begin
-      lnk := Copy(Base, p, p2 - p);
-      Delete(Base, p, p2 - p + Length(SPICTE));
-      Insert(AO_PIE, Base, p);
-      Insert(lnk, Base, p);
-      Insert(AO_PIB, Base, p);
-    end;
-    p := Pos(SPICTB, Base);
-  end;
+  Base := TRegEx.Replace(Base, '<figure id=.*?src="', AO_PIB);
+  Base := TRegEx.Replace(Base, '".*?</figure>', AO_PIE);
+
   Result := Base;
 end;
 
@@ -428,28 +396,6 @@ begin
       Delete(Base, p, p2 - p + 2);
     end;
     p := Pos(SHREFB, Base);
-  end;
-  Result := Base;
-end;
-
-// 本文にベタで貼られたURLのリンク先を青空文庫風タグ「＃リンク（）］で
-// 囲む
-function ChangeURL(Base: string): string;
-var
-  p, p2: integer;
-  lnk: string;
-begin
-  p := Pos(SURLB, Base);
-  while p > 0 do
-  begin
-    p2 := PosN('</p>', Base, p);
-    if p2 > 1 then
-    begin
-      lnk := Copy(Base, p, p2 - p);
-      Delete(Base, p, p2 - p);
-      Insert(AO_LIB + lnk + AO_LIE, Base, p);
-    end;
-    p := PosN(SURLB, Base, p2);
   end;
   Result := Base;
 end;
@@ -482,7 +428,7 @@ end;
 // 小説本文をHTMLから抜き出して整形する
 function ParsePage(Page: string): Boolean;
 var
-  sp, ep: integer;
+  sp, ep, len: integer;
   capt, subt, body: string;
 begin
   Result := False;
@@ -535,23 +481,29 @@ begin
       subt := TrimSpace(subt);
       subt := Restore2RealChar(subt);
       Delete(Page, 1, Length(SEPISE) + ep);
-      sp := Pos(SBODYB, Page);
+      sp  := Pos(SBODYB, Page);
+      len := Length(SBODYB);
+      if sp = 0 then
+      begin
+        sp := Pos(SBODYB2, Page);
+        len := Length(SBODYB2);
+      end;
       if sp > 1 then
       begin
-        Delete(Page, 1, Length(SBODYB) + sp - 1);
-        sp := Pos(SBODYM, Page);
-        if sp > 0 then
-          Delete(Page, 1, sp);
+        Delete(Page, 1, + sp - 1);
+        //sp := Pos(SBODYM, Page);
+        //if sp > 0 then
+        //  Delete(Page, 1, sp);
         ep := Pos(SBODYE, Page);
         if ep > 1 then
         begin
           body := Copy(Page, 1, ep - 1);
           body := ChangeBRK(body);        // </ br>をCRLFに変換する
+          body := ChangeImage(body);      // 埋め込み画像リンクを変換する
           body := Delete_href(body);      // 本文中のリンクタグを除去する
-          body := ChangeURL(body);        // ベタ書きURLをリンクタグに変換する
+          //body := ChangeURL(body);        // ベタ書きURLをリンクタグに変換する
           body := ElimBodyTag(body);      // 本文内の整形タグを削除する（カクヨム限定）
           body := ChangeRuby(body);       // ルビのタグを変換する
-          body := ChangeImage(body);      // 埋め込み画像リンクを変換する
           body := Restore2RealChar(body); // エスケースされた特殊文字を本来の文字に変換する
 
           if Length(capt) > 1 then
@@ -570,6 +522,8 @@ begin
             TextPage.Add(AO_PB2);
             TextPage.Add('');
           end;
+        end else begin
+          Writeln(subt + ' から本文を抽出出来ませんでした.');
         end;
       end;
     end;
@@ -710,8 +664,10 @@ begin
                 Delete(ts, sp, Length(ts));
               // 前書きの最後にある"…続きを読む"を削除する
               ts := StringReplace(ts, '…続きを読む', '', [rfReplaceAll]);
+              ts := CHangeImage(ts);
+              ts := ChangeAozoraTag(ts);
               TextPage.Add(AO_KKL);
-              TextPage.Add(ChangeAozoraTag(ts));  // 前書きに《》を使う作者がいたりして
+              TextPage.Add(ts);  // 前書きに《》を使う作者がいたりして
               TextPage.Add(AO_KKR);
               TextPage.Add(AO_PB2);
               LogFile.Add('あらすじ：');
@@ -776,7 +732,7 @@ begin
   if ParamCount = 0 then
   begin
     Writeln('');
-    Writeln('kakuyomudl ver3.1 2023/11/30 (c) INOUE, masahiro.');
+    Writeln('kakuyomudl ver3.3 2024/03/18 (c) INOUE, masahiro.');
     Writeln('  使用方法');
     Writeln('  kakuyomudl [-sDL開始ページ番号] 小説トップページのURL [保存するファイル名(省略するとタイトル名で保存します)]');
     Exit;
