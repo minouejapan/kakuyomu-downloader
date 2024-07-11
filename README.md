@@ -13,6 +13,12 @@ Lazarus (3.0以降)の場合はkakuyomudl.lpiを開いてビルドしてくだ�
 
 尚、ビルドするためにはTRegExprの最新版が必要です。TRegExprは https://github.com/andgineer/TRegExpr から取得してください。srcフォルダー内のregexpr.pas、regexpr_compilers.inc、regexpr_unicodedata.pasの3つのファイルをkakuyomudlプロジェクトソースファイルと同じフォルダにコピーして下さい。
 
+#### バージョン情報を編集したい場合
+　verinfo.rcファイルをテキストファイルとして開いて編集してください。尚、編集後は文字コードをShift-JISとして保存する必要があります。
+
+　編集後はコマンドラインから、rc verinfo.rcを実行すればバージョン情報リソースファイルverinfo.resが作成されます。rc.exeはDelphiやVisual Studioをインストールしていればパスが通たフォルダー内に存在しているはずです。
+
+
 ### 使い方
 コマンドプロンプト上で、
 kakuyomudl ダウンロードしたいアルファポリス小説トップページのURL (保存したいテキストファイル名)と入力して実行キーを押します。正常に実行されればkakuyomudl.exeがあるフォルダにダウンロードした小説が青空文庫形式のテキストファイルで保存されます。
