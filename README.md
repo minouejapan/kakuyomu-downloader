@@ -6,8 +6,11 @@ Windows10/11上のコマンドプロンプト上で動作します。
 
 ### 実行ファイルの作り方
 ver4.0からDelphi/Lazarusどちらからでもビルド出来るようにしました。
+
 Delphi (XE2以降)の場合はkakuyomudl.dprojを開いてビルドしてください。
+
 Lazarus (3.0以降)の場合はkakuyomudl.lpiを開いてビルドしてください。
+
 尚、ビルドするためにはTRegExprの最新版が必要です。TRegExprは https://github.com/andgineer/TRegExpr から取得してください。srcフォルダー内のregexpr.pas、regexpr_compilers.inc、regexpr_unicodedata.pasの3つのファイルをkakuyomudlプロジェクトソースファイルと同じフォルダにコピーして下さい。
 
 ### 使い方
