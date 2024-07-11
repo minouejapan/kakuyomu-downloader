@@ -1,6 +1,7 @@
 ﻿(*
   カクヨム小説ダウンローダー[kakuyomudl]
 
+  4.0 2024/07/11  Lazarusに移植した上でLazarus/Delphiどちらでもビルド出来るようにした
   3.3 2024/03/18  挿絵画像のURL抽出が不完全だった不具合を修正した
                   本文の最初が挿絵の場合に本文を抽出出来ない不具合を修正した
                   本文中のURLをリンク化する処理を廃止した
@@ -16,7 +17,7 @@
   2.5 2023/03/30  行の先頭に半角空白がある場合は除去する処理を追加した
   2.4 2023/03/19  &#????;の処理を16進数2byte決め打ちから10進数でも変換できるように変更した
   2.3 2023/02/27  &#x????;にエンコードされている‼等のUnicode文字をデコードする処理を追加した
-                  識別タグの文字列長さを定数からLength(識別文字定数)に変更した
+                  識別タグの文字列長さを定数からUTF8Length(識別文字定数)に変更した
   2.2 2022/12/29  見出しの青空文庫タグを変更した
   2.1 2022/10/13  前書きの最後にある"…続きを読む"を削除するようにした
   2.0 2022/08/05  タイトル名の先頭に連載状況（連載中・完結）を追加するようにした
@@ -40,17 +41,31 @@ program kakuyomudl;
 
 {$APPTYPE CONSOLE}
 
-{$R *.res}
+{$IFDEF FPC}
+  {$MODE Delphi}
+  {$codepage utf8}
+{$ENDIF}
 
-{$R *.dres}
+{$R *.res}
+{$R verinfo.res}
+
+//{$R *.dres}
 
 uses
+{$IFDEF FPC}
+  SysUtils,
+  Classes,
+  Messages,
+  LazUTF8,
+{$ELSE}
+  LazUTF8wrap,
   System.SysUtils,
   System.Classes,
-  System.RegularExpressions,
+  WinAPI.Messages,
+{$ENDIF}
   Windows,
-  WinInet,
-  WinAPI.Messages;
+  regexpr,
+  WinInet;
 
 const
   // データ抽出用の識別タグ
@@ -196,13 +211,13 @@ end;
 // HTMLテキスト内のCR/LF(#$0D#$0A)を除去する
 function ElimCRLF(Base: string): string;
 begin
-  Result := StringReplace(Base, #$0D#$0A, '', [rfReplaceAll]);
+  Result := UTF8StringReplace(Base, #$0D#$0A, '', [rfReplaceAll]);
 end;
 
 // 前書き内のタグを削除する（カクヨム限定）
 function ElimTag(Base: string): string;
 begin
-  Base := TRegEx.Replace(Base, '<.*?>', '');
+  Base := ReplaceRegExpr('<.*?>', Base, '');
 
   Result := Base;
 end;
@@ -215,23 +230,23 @@ var
   tmp: string;
 begin
   Result := '';
-  Base := StringReplace(Base, '</p>', '', [rfReplaceAll]);
-  Base := StringReplace(Base, '</a>', '', [rfReplaceAll]);
+  Base := UTF8StringReplace(Base, '</p>', '', [rfReplaceAll]);
+  Base := UTF8StringReplace(Base, '</a>', '', [rfReplaceAll]);
   tmplist := TStringList.Create;
   try
     tmplist.Text := Base;
     for i := 0 to tmplist.Count - 1 do
     begin
-      if Pos('class="blank">', tmplist[i]) > 0 then
+      if UTF8Pos('class="blank">', tmplist[i]) > 0 then
         tmplist[i] := '';
       tmp := tmplist[i];
-      p := Pos('">', tmp);
+      p := UTF8Pos('">', tmp);
       if p > 0 then
       begin
-        Delete(tmp, 1, p + 1);
+        UTF8Delete(tmp, 1, p + 1);
         // 先頭の半角空白を除去する
         while tmp[1] = ' ' do
-          Delete(tmp, 1, 1);
+          UTF8Delete(tmp, 1, 1);
         tmplist[i] := tmp;
       end;
     end;
@@ -246,26 +261,26 @@ end;
 function TrimSpace(Base: string): string;
 var
   p: integer;
-  c: char;
+  c: string;
 begin
   while True do
   begin
-    if Length(Base) = 0 then
+    if UTF8Length(Base) = 0 then
       Break;
-    c := Base[1];
-    if Pos(c, ' 　'#$09#$0D#$0A) > 0 then
-      Delete(Base, 1, 1)
+    c := UTF8Copy(Base, 1, 1);
+    if UTF8Pos(c, ' 　'#$09#$0D#$0A) > 0 then
+      UTF8Delete(Base, 1, 1)
     else
       Break;
   end;
   while True do
   begin
-    p := Length(Base);
+    p := UTF8Length(Base);
     if p = 0 then
       Break;
-    c := Base[p];
-    if Pos(c, ' 　'#$09#$0D#$0A) > 0 then
-      Delete(Base, p, 1)
+    c := UTF8Copy(Base, p, 1);
+    if UTF8Pos(c, ' 　'#$09#$0D#$0A) > 0 then
+      UTF8Delete(Base, p, 1)
     else
       Break;
   end;
@@ -275,7 +290,7 @@ end;
 // 本文の改行タグを改行コードに変換する
 function ChangeBRK(Base: string): string;
 begin
-  Result := StringReplace(Base, '<br />', #13#10, [rfReplaceAll]);
+  Result := UTF8StringReplace(Base, '<br />', #13#10, [rfReplaceAll]);
 end;
 
 // 本文の青空文庫ルビ指定に用いられる文字があった場合誤作動しないように青空文庫代替表記に変換する(2022/3/25)
@@ -283,11 +298,11 @@ function ChangeAozoraTag(Base: string): string;
 var
   tmp: string;
 begin
-  tmp := StringReplace(Base, '<rp>《</rp>', '<rp>(</rp>', [rfReplaceAll]);
-  tmp := StringReplace(tmp,  '<rp>》</rp>', '<rp>)</rp>', [rfReplaceAll]);
-  tmp := StringReplace(tmp, '《', '※［＃始め二重山括弧、1-1-52］',  [rfReplaceAll]);
-  tmp := StringReplace(tmp,  '》', '※［＃終わり二重山括弧、1-1-53］',  [rfReplaceAll]);
-  tmp := StringReplace(tmp,  '｜', '※［＃縦線、1-1-35］',   [rfReplaceAll]);
+  tmp := UTF8StringReplace(Base, '<rp>《</rp>', '<rp>(</rp>', [rfReplaceAll]);
+  tmp := UTF8StringReplace(tmp,  '<rp>》</rp>', '<rp>)</rp>', [rfReplaceAll]);
+  tmp := UTF8StringReplace(tmp, '《', '※［＃始め二重山括弧、1-1-52］',  [rfReplaceAll]);
+  tmp := UTF8StringReplace(tmp,  '》', '※［＃終わり二重山括弧、1-1-53］',  [rfReplaceAll]);
+  tmp := UTF8StringReplace(tmp,  '｜', '※［＃縦線、1-1-35］',   [rfReplaceAll]);
   Result := tmp;
 end;
 
@@ -297,21 +312,21 @@ var
   tmp: string;
 begin
   // <rp>タグを除去
-  tmp := StringReplace(Base, '<rp>(</rp>', '', [rfReplaceAll]);
-  tmp := StringReplace(tmp,  '<rp>)</rp>', '', [rfReplaceAll]);
-  tmp := StringReplace(tmp,  '<rp>（</rp>', '', [rfReplaceAll]);
-  tmp := StringReplace(tmp,  '<rp>）</rp>', '', [rfReplaceAll]);
-  tmp := StringReplace(tmp,  '<rb>', '', [rfReplaceAll]);
-  tmp := StringReplace(tmp,  '</rb>', '', [rfReplaceAll]);
+  tmp := UTF8StringReplace(Base, '<rp>(</rp>', '', [rfReplaceAll]);
+  tmp := UTF8StringReplace(tmp,  '<rp>)</rp>', '', [rfReplaceAll]);
+  tmp := UTF8StringReplace(tmp,  '<rp>（</rp>', '', [rfReplaceAll]);
+  tmp := UTF8StringReplace(tmp,  '<rp>）</rp>', '', [rfReplaceAll]);
+  tmp := UTF8StringReplace(tmp,  '<rb>', '', [rfReplaceAll]);
+  tmp := UTF8StringReplace(tmp,  '</rb>', '', [rfReplaceAll]);
   // rubyタグを青空文庫形式に変換
-  tmp := StringReplace(tmp,  '<ruby>', AO_RBI, [rfReplaceAll]);
-  tmp := StringReplace(tmp,  '<rt>',   AO_RBL, [rfReplaceAll]);
-  tmp := StringReplace(tmp,  '</rt></ruby>', AO_RBR, [rfReplaceAll]);
+  tmp := UTF8StringReplace(tmp,  '<ruby>', AO_RBI, [rfReplaceAll]);
+  tmp := UTF8StringReplace(tmp,  '<rt>',   AO_RBL, [rfReplaceAll]);
+  tmp := UTF8StringReplace(tmp,  '</rt></ruby>', AO_RBR, [rfReplaceAll]);
   // カクヨムの傍点タグ？
-  tmp := StringReplace(tmp,  '<em class="emphasisDots"><span>', AO_EMB, [rfReplaceAll]);
-  tmp := StringReplace(tmp,  '<span>', AO_EMB,  [rfReplaceAll]);
-  tmp := StringReplace(tmp,  '</span></em>', AO_EME,  [rfReplaceAll]);
-  tmp := StringReplace(tmp,  '</span>', AO_EME,  [rfReplaceAll]);
+  tmp := UTF8StringReplace(tmp,  '<em class="emphasisDots"><span>', AO_EMB, [rfReplaceAll]);
+  tmp := UTF8StringReplace(tmp,  '<span>', AO_EMB,  [rfReplaceAll]);
+  tmp := UTF8StringReplace(tmp,  '</span></em>', AO_EME,  [rfReplaceAll]);
+  tmp := UTF8StringReplace(tmp,  '</span>', AO_EME,  [rfReplaceAll]);
 
   Result := tmp;
 end;
@@ -322,8 +337,8 @@ var
   tmp: string;
   p: integer;
 begin
-  tmp := Copy(Str, StartPos, Length(Str));
-  p := Pos(SubStr, tmp);
+  tmp := UTF8Copy(Str, StartPos, UTF8Length(Str));
+  p := UTF8Pos(SubStr, tmp);
   if p > 0 then
     Result := p + StartPos - 1  // 1ベーススタートのため1を引く
   else
@@ -336,38 +351,45 @@ end;
 function Restore2RealChar(Base: string): string;
 var
   tmp, cd: string;
-  p, p2, w: integer;
+  w: integer;
   ch: Char;
-  m: TMatch;
+  r: TRegExpr;
 begin
   // エスケープされた文字
-  tmp := StringReplace(Base, '&lt;',      '<',  [rfReplaceAll]);
-  tmp := StringReplace(tmp,  '&gt;',      '>',  [rfReplaceAll]);
-  tmp := StringReplace(tmp,  '&quot;',    '"',  [rfReplaceAll]);
-  tmp := StringReplace(tmp,  '&nbsp;',    ' ',  [rfReplaceAll]);
-  tmp := StringReplace(tmp,  '&yen;',     '\',  [rfReplaceAll]);
-  tmp := StringReplace(tmp,  '&brvbar;',  '|',  [rfReplaceAll]);
-  tmp := StringReplace(tmp,  '&copy;',    '©',  [rfReplaceAll]);
-  tmp := StringReplace(tmp,  '&amp;',     '&',  [rfReplaceAll]);
+  tmp := UTF8StringReplace(Base, '&lt;',      '<',  [rfReplaceAll]);
+  tmp := UTF8StringReplace(tmp,  '&gt;',      '>',  [rfReplaceAll]);
+  tmp := UTF8StringReplace(tmp,  '&quot;',    '"',  [rfReplaceAll]);
+  tmp := UTF8StringReplace(tmp,  '&nbsp;',    ' ',  [rfReplaceAll]);
+  tmp := UTF8StringReplace(tmp,  '&yen;',     '\',  [rfReplaceAll]);
+  tmp := UTF8StringReplace(tmp,  '&brvbar;',  '|',  [rfReplaceAll]);
+  tmp := UTF8StringReplace(tmp,  '&copy;',    '©',  [rfReplaceAll]);
+  tmp := UTF8StringReplace(tmp,  '&amp;',     '&',  [rfReplaceAll]);
   // &#????;にエンコードされた文字をデコードする(2023/3/19)
   // 正規表現による処理に変更した(2024/3/9)
-  m := TRegEx.Match(tmp, '&#.*?;');
-  while m.Index > 1 do
-  begin
-    Delete(tmp, m.Index, m.Length);
-    cd := m.Value;
-    Delete(cd, 1, 2);           // &#を削除する
-    Delete(cd, Length(cd), 1);  // 最後の;を削除する
-    if cd[1] = 'x' then         // 先頭が16進数を表すxであればDelphiの16進数接頭文字$に変更する
-      cd[1] := '$';
-    try
-      w := StrToInt(cd);
-      ch := Char(w);
-    except
-      ch := '？';
+  r := TRegExpr.Create;
+  try
+    r.Expression  := '&#.*?;';
+    r.InputString := tmp;
+    if r.Exec then
+    begin
+      repeat
+        UTF8Delete(tmp, r.MatchPos[0], r.MatchLen[0]);
+        cd := r.Match[0];
+        UTF8Delete(cd, 1, 2);           // &#を削除する
+        UTF8Delete(cd, UTF8Length(cd), 1);  // 最後の;を削除する
+        if cd[1] = 'x' then         // 先頭が16進数を表すxであればDelphiの16進数接頭文字$に変更する
+          cd[1] := '$';
+        try
+          w := StrToInt(cd);
+          ch := Char(w);
+        except
+          ch := '？';
+        end;
+        UTF8Insert(ch, tmp, r.MatchPos[0]);
+      until not r.ExecNext;
     end;
-    Insert(ch, tmp, m.Index);
-    m := TRegEx.Match(tmp, '&#.*?;');
+  finally
+    r.Free;
   end;
   Result := tmp;
 end;
@@ -376,8 +398,8 @@ end;
 // 但し、画像ファイルはダウンロードせずにリンク先をそのまま埋め込む
 function ChangeImage(Base: string): string;
 begin
-  Base := TRegEx.Replace(Base, '<figure id=.*?src="', AO_PIB);
-  Base := TRegEx.Replace(Base, '".*?</figure>', AO_PIE);
+  Base := ReplaceRegExpr('<figure id=.*?src="', Base, AO_PIB);
+  Base := ReplaceRegExpr('".*?</figure>', Base, AO_PIE);
 
   Result := Base;
 end;
@@ -387,15 +409,15 @@ function Delete_href(Base: string): string;
 var
   p, p2: integer;
 begin
-  p := Pos(SHREFB, Base);
+  p := UTF8Pos(SHREFB, Base);
   while p > 0 do
   begin
     p2 := PosN(SHREFE, Base, p);
     if p2 > 1 then
     begin
-      Delete(Base, p, p2 - p + 2);
+      UTF8Delete(Base, p, p2 - p + 2);
     end;
-    p := Pos(SHREFB, Base);
+    p := UTF8Pos(SHREFB, Base);
   end;
   Result := Base;
 end;
@@ -403,7 +425,34 @@ end;
 // タイトル名をファイル名として使用出来るかどうかチェックし、使用不可文字が
 // あれば修正する('-'に置き換える)
 // フォルダ名の最後が'.'の場合、フォルダ作成時に"."が無視されてフォルダ名が
-// 見つからないことになるため'.'も'-'で置き換える(2019/12/20)
+// 見つからないことになるため'.'も'-'で置き換える
+// LazarusではUTF8文字列をインデックス(string[])でアクセス出来ないため、
+// UTF8Copy, UTF8Delete, UTF8Insert処理で置き換える
+{$IFDEF FPC}
+function PathFilter(PassName: string): string;
+var
+  i, l: integer;
+  path: string;
+  tmp: AnsiString;
+  ch: string;     // LazarusではCharにUTF-8の文字を代入できないためstringで定義する
+begin
+  // ファイル名を一旦ShiftJISに変換して再度Unicode化することでShiftJISで使用
+  // 出来ない文字を除去する
+  tmp := UTF8ToWinCP(PassName);
+  path := WinCPToUTF8(tmp);      // これでUTF-8依存文字は??に置き換わる
+  l :=  UTF8Length(path);
+  for i := 1 to l do
+  begin
+    ch := UTF8Copy(path, i, 1); // i番目の文字を取り出す
+    if Pos(ch, '\/;:*?"<>|. '+#$09) > 0 then // 文字種が使用不可であれば
+    begin
+      UTF8Delete(path, i, 1);                // 該当文字を削除して
+      UTF8Insert('-', path, i);              // 代わりに'-'を挿入する
+    end;
+  end;
+  Result := path;
+end;
+{$ELSE}
 function PathFilter(PassName: string): string;
 var
 	i, l: integer;
@@ -424,11 +473,12 @@ begin
   end;
   Result := path;
 end;
+{$ENDIF}
 
 // 小説本文をHTMLから抜き出して整形する
 function ParsePage(Page: string): Boolean;
 var
-  sp, ep, len: integer;
+  sp, ep: integer;
   capt, subt, body: string;
 begin
   Result := False;
@@ -437,67 +487,65 @@ begin
 
   //Page := ElimCRLF(Page);
   // 章(Chapter)＋話(Episode)構成の場合と話(Episode)だけの場合があるため、まずは章があれば処理して次に話を処理する
-  sp := Pos(SCAPTB, Page);  // 章(Chapter Level-1)をチェック
+  sp := UTF8Pos(SCAPTB, Page);  // 章(Chapter Level-1)をチェック
   if sp > 1 then
   begin
-    Delete(Page, 1, Length(SCAPTB) + sp - 1);
-    ep := Pos(SCAPTE, Page);
+    UTF8Delete(Page, 1, UTF8Length(SCAPTB) + sp - 1);
+    ep := UTF8Pos(SCAPTE, Page);
     if ep > 1 then
     begin
-      capt := Copy(Page, 1, ep - 1);
+      capt := UTF8Copy(Page, 1, ep - 1);
       capt := TrimSpace(capt);
       if Capter = capt then
         capt := ''
       else
         Capter := capt;
-      Delete(Page, 1, Length(SCAPTE) + ep - 1);
+      UTF8Delete(Page, 1, UTF8Length(SCAPTE) + ep - 1);
     end;
   end;
-  sp := Pos(SCAPTB2, Page);  // 章(Chapter Level-2)をチェック
+  sp := UTF8Pos(SCAPTB2, Page);  // 章(Chapter Level-2)をチェック
   if sp > 1 then
   begin
-    Delete(Page, 1, Length(SCAPTB) + sp - 1);
-    ep := Pos(SCAPTE, Page);
+    UTF8Delete(Page, 1, UTF8Length(SCAPTB) + sp - 1);
+    ep := UTF8Pos(SCAPTE, Page);
     if ep > 1 then
     begin
-      capt := Copy(Page, 1, ep - 1);
+      capt := UTF8Copy(Page, 1, ep - 1);
       capt := TrimSpace(capt);
       capt := Restore2RealChar(capt);
       if Capter = capt then
         capt := ''
       else
         Capter := capt;
-      Delete(Page, 1, Length(SCAPTE) + ep - 1);
+      UTF8Delete(Page, 1, UTF8Length(SCAPTE) + ep - 1);
     end;
   end;
-  sp := Pos(SEPISB, Page);  // 話(Episode)をチェック
+  sp := UTF8Pos(SEPISB, Page);  // 話(Episode)をチェック
   if sp > 1 then
   begin
-    Delete(Page, 1, Length(SEPISB) + sp - 1);
-    ep := Pos(SEPISE, Page);
+    UTF8Delete(Page, 1, UTF8Length(SEPISB) + sp - 1);
+    ep := UTF8Pos(SEPISE, Page);
     if ep > 1 then
     begin
-      subt := Copy(Page, 1, ep - 1);
+      subt := UTF8Copy(Page, 1, ep - 1);
       subt := TrimSpace(subt);
       subt := Restore2RealChar(subt);
-      Delete(Page, 1, Length(SEPISE) + ep);
-      sp  := Pos(SBODYB, Page);
-      len := Length(SBODYB);
+      UTF8Delete(Page, 1, UTF8Length(SEPISE) + ep);
+      sp  := UTF8Pos(SBODYB, Page);
       if sp = 0 then
       begin
-        sp := Pos(SBODYB2, Page);
-        len := Length(SBODYB2);
+        sp := UTF8Pos(SBODYB2, Page);
       end;
       if sp > 1 then
       begin
-        Delete(Page, 1, + sp - 1);
-        //sp := Pos(SBODYM, Page);
+        UTF8Delete(Page, 1, + sp - 1);
+        //sp := UTF8Pos(SBODYM, Page);
         //if sp > 0 then
-        //  Delete(Page, 1, sp);
-        ep := Pos(SBODYE, Page);
+        //  UTF8Delete(Page, 1, sp);
+        ep := UTF8Pos(SBODYE, Page);
         if ep > 1 then
         begin
-          body := Copy(Page, 1, ep - 1);
+          body := UTF8Copy(Page, 1, ep - 1);
           body := ChangeBRK(body);        // </ br>をCRLFに変換する
           body := ChangeImage(body);      // 埋め込み画像リンクを変換する
           body := Delete_href(body);      // 本文中のリンクタグを除去する
@@ -509,7 +557,7 @@ begin
           if Length(capt) > 1 then
             TextPage.Add(AO_CPB + capt + AO_CPE);
 
-          sp := Pos(SERRSTR, body);
+          sp := UTF8Pos(SERRSTR, body);
           if (sp > 0) and (sp < 10) then
           begin
             TextPage.Add(AO_CPI + subt + AO_SEC);
@@ -564,7 +612,7 @@ begin
       if hWnd <> 0 then
         SendMessage(hWnd, WM_DLINFO, n, 1);
       // ダウンロードを安定させるために0.5秒のインターバルを入れる
-      Sleep(200);
+      Sleep(400);   // サーバーへの負担を減らすため、200 -> 400に変更 2024/7/10
     end;
     Inc(i);
     Inc(n);
@@ -579,130 +627,138 @@ procedure ParseCapter(MainPage: string);
 var
   sp, ep: integer;
   ss, ts, title, auther, authurl, fn, sendstr: string;
-  m: TMatch;
+  r: TRegExpr;
   conhdl: THandle;
 begin
   Write('小説情報を取得中 ' + URL + ' ... ');
-  // タイトル名
-  m := TRegEx.Match(MainPage, STITLEB);
-  sp := m.Index;
-  if sp > 1 then
-  begin
-    Delete(MainPage, 1, sp + m.Length - 1);
-    sp := Pos(STITLEE, MainPage);
-    if sp > 1 then
+  r := TRegExpr.Create;
+  try
+    // タイトル名
+    r.Expression  := STITLEB;
+    r.InputString := MainPage;
+    if r.Exec then
     begin
-      ss := Copy(MainPage, 1, sp - 1);
-      while (ss[1] <= ' ') do
-        Delete(ss, 1, 1);
-      // タイトル名からファイル名に使用できない文字を除去する
-      title := PathFilter(Restore2RealChar(ss));
-      // 引数に保存するファイル名を指定していなかった場合、タイトル名からファイル名を作成する
-      if Length(Filename) = 0 then
+      sp := r.MatchPos[0];
+      UTF8Delete(MainPage, 1, sp + r.MatchLen[0] - 1);
+      sp := UTF8Pos(STITLEE, MainPage);
+      if sp > 1 then
       begin
-        fn := title;
-        if Length(fn) > 26 then
-          Delete(fn, 27, Length(fn) - 26);
-        if StartPage <> '' then
-          fn := fn + '(' + StartPage + ')';
-        Filename := Path + fn + '.txt';
-      end;
-      // タイトル名に"完結"が含まれていなければ先頭に小説の連載状況を追加する
-      if Pos('完結', title) = 0 then
-        title := NvStat + title;
-      // タイトル名を保存
-      TextPage.Add(title);
-      LogFile.Add('タイトル：' + title);
-      Delete(MainPage, 1, sp + Length(STITLEE));
-      authurl := '';
-      // 作者URL
-      sp := Pos(SAUTHERB, MainPage);
-      if sp > 1  then
-      begin
-        Delete(MainPage, 1, sp + Length(SAUTHERB) - 1);
-        m := TRegEx.Match(MainPage, SAUTHERM);
-        ep := m.Index;
-        if ep > 1 then
+        ss := UTF8Copy(MainPage, 1, sp - 1);
+        while (ss[1] <= ' ') do
+          UTF8Delete(ss, 1, 1);
+        // タイトル名からファイル名に使用できない文字を除去する
+        title := PathFilter(Restore2RealChar(ss));
+        // 引数に保存するファイル名を指定していなかった場合、タイトル名からファイル名を作成する
+        if UTF8Length(Filename) = 0 then
         begin
-          ts := Copy(MainPage, 1, ep - 1);
-          authurl := 'https://kakuyomu.jp' + ts;  // 作者URL
-          Delete(MainPage, 1, ep + m.Length - 1);
-          ep := Pos(SAUTHERE, MainPage);
-          if ep > 1 then
+          fn := title;
+          if Length(fn) > 26 then
+            UTF8Delete(fn, 27, UTF8Length(fn) - 26);
+          if StartPage <> '' then
+            fn := fn + '(' + StartPage + ')';
+          Filename := Path + fn + '.txt';
+        end;
+        // タイトル名に"完結"が含まれていなければ先頭に小説の連載状況を追加する
+        if UTF8Pos('完結', title) = 0 then
+          title := NvStat + title;
+        // タイトル名を保存
+        TextPage.Add(title);
+        LogFile.Add('タイトル：' + title);
+        UTF8Delete(MainPage, 1, sp + UTF8Length(STITLEE));
+        authurl := '';
+        // 作者URL
+        sp := UTF8Pos(SAUTHERB, MainPage);
+        if sp > 1  then
+        begin
+          UTF8Delete(MainPage, 1, sp + UTF8Length(SAUTHERB) - 1);
+          r.Expression  := SAUTHERM;
+          r.InputString := MainPage;
+          if r.Exec then
           begin
-            auther := Copy(MainPage, 1, ep - 1);
-            Delete(MainPage, 1, ep + Length(SAUTHERE));
-          end;
-          // 作者名を保存
-          TextPage.Add(auther);
-          TextPage.Add('');
-          TextPage.Add(AO_PB2);
-          TextPage.Add('');
-          LogFile.Add('作者　　：' + auther);
-          if authurl <> '' then
-            LogFile.Add('作者URL : ' + authurl);
-          // #$0D#$0Aを削除する
-          MainPage := ElimCRLF(MainPage);
-          Delete(MainPage, 1, ep + Length(SAUTHERE));
-          // 前書き（あらすじ）
-          m := TRegEx.Match(MainPage, SHEADERB);
-          sp := m.Index;
-          if sp > 1 then
-          begin
-            // 省略されていない前書きはソースの一番下にあるためコピーを作って作業する
-            ts := Copy(MainPage, sp + Length(SHEADERB), Length(MainPage));
-            ep := Pos(SHEADERE, ts);
+            ep := r.MatchPos[0];
+            ts := UTF8Copy(MainPage, 1, ep - 1);
+            authurl := 'https://kakuyomu.jp' + ts;  // 作者URL
+            UTF8Delete(MainPage, 1, ep + r.MatchLen[0] - 1);
+            ep := UTF8Pos(SAUTHERE, MainPage);
             if ep > 1 then
             begin
-              ts := Copy(ts, 1, ep - 1);
-              // あらすじ部分の改行が\n表記となったため直接CRLFに置換する
-              ts := StringReplace(ts, '\n', CRLF, [rfReplaceAll]);
-              ts := ElimTag(ts);
-              // 余分なタグを除去する
-              sp := Pos('<', ts);
-              if sp > 1 then
-                Delete(ts, sp, Length(ts));
-              // 前書きの最後にある"…続きを読む"を削除する
-              ts := StringReplace(ts, '…続きを読む', '', [rfReplaceAll]);
-              ts := CHangeImage(ts);
-              ts := ChangeAozoraTag(ts);
-              TextPage.Add(AO_KKL);
-              TextPage.Add(ts);  // 前書きに《》を使う作者がいたりして
-              TextPage.Add(AO_KKR);
-              TextPage.Add(AO_PB2);
-              LogFile.Add('あらすじ：');
-              LogFile.Add(ts);
+              auther := UTF8Copy(MainPage, 1, ep - 1);
+              UTF8Delete(MainPage, 1, ep + Length(SAUTHERE));
             end;
-          end;
-          // 各話のURLを取得する
-          sp := Pos(SSTRURLB, MainPage);
-          while sp > 1 do
-          begin
-            Delete(MainPage, 1, sp + Length(SSTRURLB) - 1);
-            ep := Pos(SSTRURLE, MainPage);
-            if ep > 1 then
+            // 作者名を保存
+            TextPage.Add(auther);
+            TextPage.Add('');
+            TextPage.Add(AO_PB2);
+            TextPage.Add('');
+            LogFile.Add('作者　　：' + auther);
+            if authurl <> '' then
+              LogFile.Add('作者URL : ' + authurl);
+            // #$0D#$0Aを削除する
+            MainPage := ElimCRLF(MainPage);
+            UTF8Delete(MainPage, 1, ep + UTF8Length(SAUTHERE));
+            // 前書き（あらすじ）
+            r.Expression  := SHEADERB;
+            r.InputString := MainPage;
+            if r.Exec then
             begin
-              ts := Copy(MainPage, 1, ep - 1);
-              PageList.Add(URL + '/episodes/' + ts);
-              Delete(MainPage, 1, ep + Length(SSTRURLE) - 1);
-              sp := Pos(SSTRURLB, MainPage);
-            end else
-              Break;
-          end;
-          Writeln(IntToStr(PageList.Count) + ' 話の情報を取得しました.');
-          // Naro2mobiから呼び出された場合は進捗状況をSendする
-          if hWnd <> 0 then
-          begin
-            conhdl := GetStdHandle(STD_OUTPUT_HANDLE);
-            sendstr := title + ',' + auther;
-            Cds.dwData := PageList.Count - StartN + 1;
-            Cds.cbData := (Length(sendstr) + 1) * SizeOf(Char);
-            Cds.lpData := Pointer(sendstr);
-            SendMessage(hWnd, WM_COPYDATA, conhdl, LPARAM(Addr(Cds)));
+              sp := r.MatchPos[0];
+              // 省略されていない前書きはソースの一番下にあるためコピーを作って作業する
+              ts := UTF8Copy(MainPage, sp + UTF8Length(SHEADERB), UTF8Length(MainPage));
+              ep := UTF8Pos(SHEADERE, ts);
+              if ep > 1 then
+              begin
+                ts := UTF8Copy(ts, 1, ep - 1);
+                // あらすじ部分の改行が\n表記となったため直接CRLFに置換する
+                ts := UTF8StringReplace(ts, '\n', CRLF, [rfReplaceAll]);
+                ts := ElimTag(ts);
+                // 余分なタグを除去する
+                sp := UTF8Pos('<', ts);
+                if sp > 1 then
+                  UTF8Delete(ts, sp, Length(ts));
+                // 前書きの最後にある"…続きを読む"を削除する
+                ts := UTF8StringReplace(ts, '…続きを読む', '', [rfReplaceAll]);
+                ts := ChangeImage(ts);
+                ts := ChangeAozoraTag(ts);
+                TextPage.Add(AO_KKL);
+                TextPage.Add(ts);  // 前書きに《》を使う作者がいたりして
+                TextPage.Add(AO_KKR);
+                TextPage.Add(AO_PB2);
+                LogFile.Add('あらすじ：');
+                LogFile.Add(ts);
+              end;
+            end;
+            // 各話のURLを取得する
+            sp := UTF8Pos(SSTRURLB, MainPage);
+            while sp > 1 do
+            begin
+              UTF8Delete(MainPage, 1, sp + UTF8Length(SSTRURLB) - 1);
+              ep := UTF8Pos(SSTRURLE, MainPage);
+              if ep > 1 then
+              begin
+                ts := Copy(MainPage, 1, ep - 1);
+                PageList.Add(URL + '/episodes/' + ts);
+                UTF8Delete(MainPage, 1, ep + UTF8Length(SSTRURLE) - 1);
+                sp := UTF8Pos(SSTRURLB, MainPage);
+              end else
+                Break;
+            end;
+            Writeln(IntToStr(PageList.Count) + ' 話の情報を取得しました.');
+            // Naro2mobiから呼び出された場合は進捗状況をSendする
+            if hWnd <> 0 then
+            begin
+              conhdl := GetStdHandle(STD_OUTPUT_HANDLE);
+              sendstr := title + ',' + auther;
+              Cds.dwData := PageList.Count - StartN + 1;
+              Cds.cbData := (Length(sendstr) + 1) * SizeOf(Char);
+              Cds.lpData := Pointer(sendstr);
+              SendMessage(hWnd, WM_COPYDATA, conhdl, LPARAM(Addr(Cds)));
+            end;
           end;
         end;
       end;
     end;
+  finally
+    r.Free;
   end;
 end;
 
@@ -710,17 +766,27 @@ end;
 function GetNovelStatus(MainPage: string): string;
 var
   str: string;
-  m: TMatch;
+  //m: TMatch;
+  r: TRegExpr;
 begin
   Result := '';
-  m := TRegEx.Match(MainPage, '<ul class=.*?><li class=.*?><div class=.*?>.*?<!-- --> 全<!-- -->');
-  if m.Index > 1 then
-  begin
-    str := Copy(MainPage, m.Index, m.Length);
-    if Pos('連載中', str) > 0 then
-      Result := '【連載中】'
-    else if Pos('完結済', str) > 0 then
-      Result := '【完結】';
+  r := TRegExpr.Create;
+  try
+    //m := TRegEx.Match(MainPage, '<ul class=.*?><li class=.*?><div class=.*?>.*?<!-- --> 全<!-- -->');
+    r.Expression  := '<ul class=.*?><li class=.*?><div class=.*?>.*?<!-- --> 全<!-- -->';
+    r.InputString := MainPage;
+    //if m.Index > 1 then
+    if r.Exec then
+    begin
+      //str := Copy(MainPage, m.Index, m.Length);
+      str := UTF8Copy(MainPage, r.MatchPos[0], r.MatchLen[0]);
+      if UTF8Pos('連載中', str) > 0 then
+        Result := '【連載中】'
+      else if UTF8Pos('完結済', str) > 0 then
+        Result := '【完結】';
+    end;
+  finally
+    r.Free;;
   end;
 end;
 
@@ -732,7 +798,7 @@ begin
   if ParamCount = 0 then
   begin
     Writeln('');
-    Writeln('kakuyomudl ver3.3 2024/03/18 (c) INOUE, masahiro.');
+    Writeln('kakuyomudl ver4.0 2024/07/11 (c) INOUE, masahiro.');
     Writeln('  使用方法');
     Writeln('  kakuyomudl [-sDL開始ページ番号] 小説トップページのURL [保存するファイル名(省略するとタイトル名で保存します)]');
     Exit;
@@ -749,7 +815,7 @@ begin
   begin
     op := ParamStr(i + 1);
     // Naro2mobiのWindowsハンドル
-    if Pos('-h', op) = 1 then
+    if UTF8Pos('-h', op) = 1 then
     begin
       Delete(op, 1, 2);
       try
@@ -760,7 +826,7 @@ begin
         Exit;
       end;
     // DL開始ページ番号
-    end else if Pos('-s', op) = 1 then
+    end else if UTF8Pos('-s', op) = 1 then
     begin
       Delete(op, 1, 2);
       StartPage := op;
@@ -772,7 +838,7 @@ begin
         Exit;
       end;
     // 作品URL
-    end else if Pos('https:', op) = 1 then
+    end else if UTF8Pos('https:', op) = 1 then
     begin
       URL := op;
     // それ以外であれば保存ファイル名
@@ -783,7 +849,7 @@ begin
     end;
   end;
 
-  if Pos('https://kakuyomu.jp/works/', URL) = 0 then
+  if UTF8Pos('https://kakuyomu.jp/works/', URL) = 0 then
   begin
     Writeln('小説のURLが違います.');
     ExitCode := -1;
@@ -805,6 +871,8 @@ begin
       begin
         LoadEachPage;                           // 小説各話情報を取得
         try
+          TextPage.WriteBOM := True;  // DelphiとLazarusでデフォルトの定義が違うため明示的に指定する
+          LogFile.WriteBOM  := True;
           TextPage.SaveToFile(Filename, TEncoding.UTF8);
           LogFile.SaveToFile(ChangeFileExt(FileName, '.log'), TEncoding.UTF8);
           Writeln(Filename + ' に保存しました.');
