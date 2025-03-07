@@ -90,6 +90,9 @@
 			<DelphiCompile Include="$(MainSource)">
 				<MainSource>MainSource</MainSource>
 			</DelphiCompile>
+			<RcCompile Include="verinfo.rc">
+				<Form>verinfo.res</Form>
+			</RcCompile>
 			<BuildConfiguration Include="Debug">
 				<Key>Cfg_2</Key>
 				<CfgParent>Base</CfgParent>

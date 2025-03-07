@@ -1,6 +1,8 @@
 ﻿(*
   カクヨム小説ダウンローダー[kakuyomudl]
 
+  4.1 2024/03/07  一部の作品で連載状況を取得出来なかった不具合を修正した
+                  ファイル名にも連載状況を付加するようにした
   4.0 2024/07/11  Lazarusに移植した上でLazarus/Delphiどちらでもビルド出来るようにした
   3.3 2024/03/18  挿絵画像のURL抽出が不完全だった不具合を修正した
                   本文の最初が挿絵の場合に本文を抽出出来ない不具合を修正した
@@ -47,22 +49,15 @@ program kakuyomudl;
 {$ENDIF}
 
 {$R *.res}
-{$R verinfo.res}
+{$R 'verinfo.res' 'verinfo.rc'}
 
 //{$R *.dres}
 
 uses
-{$IFDEF FPC}
-  SysUtils,
-  Classes,
-  Messages,
-  LazUTF8,
-{$ELSE}
   LazUTF8wrap,
   System.SysUtils,
   System.Classes,
   WinAPI.Messages,
-{$ENDIF}
   Windows,
   regexpr,
   WinInet;
@@ -400,7 +395,8 @@ function ChangeImage(Base: string): string;
 begin
   Base := ReplaceRegExpr('<figure id=.*?src="', Base, AO_PIB);
   Base := ReplaceRegExpr('".*?</figure>', Base, AO_PIE);
-
+  Base := ReplaceRegExpr('<img id=.*?src="', Base, AO_PIB);
+  Base := ReplaceRegExpr('" alt=".*?" />', Base, AO_PIE);
   Result := Base;
 end;
 
@@ -422,58 +418,28 @@ begin
   Result := Base;
 end;
 
-// タイトル名をファイル名として使用出来るかどうかチェックし、使用不可文字が
-// あれば修正する('-'に置き換える)
-// フォルダ名の最後が'.'の場合、フォルダ作成時に"."が無視されてフォルダ名が
-// 見つからないことになるため'.'も'-'で置き換える
-// LazarusではUTF8文字列をインデックス(string[])でアクセス出来ないため、
-// UTF8Copy, UTF8Delete, UTF8Insert処理で置き換える
+// タイトル名にファイル名として使用出来ない文字を'-'に置換する
+// Lazarus(FPC)とDelphiで文字コード変換方法が異なるためコンパイル環境で
+// 変換処理を切り替える
+function PathFilter(PassName: string): string;
+var
+  path: string;
+  tmp: AnsiString;
+begin
+  // ファイル名を一旦ShiftJISに変換して再度Unicode化することでShiftJISで使用
+  // 出来ない文字を除去する
 {$IFDEF FPC}
-function PathFilter(PassName: string): string;
-var
-  i, l: integer;
-  path: string;
-  tmp: AnsiString;
-  ch: string;     // LazarusではCharにUTF-8の文字を代入できないためstringで定義する
-begin
-  // ファイル名を一旦ShiftJISに変換して再度Unicode化することでShiftJISで使用
-  // 出来ない文字を除去する
-  tmp := UTF8ToWinCP(PassName);
+  tmp  := UTF8ToWinCP(PassName);
   path := WinCPToUTF8(tmp);      // これでUTF-8依存文字は??に置き換わる
-  l :=  UTF8Length(path);
-  for i := 1 to l do
-  begin
-    ch := UTF8Copy(path, i, 1); // i番目の文字を取り出す
-    if Pos(ch, '\/;:*?"<>|. '+#$09) > 0 then // 文字種が使用不可であれば
-    begin
-      UTF8Delete(path, i, 1);                // 該当文字を削除して
-      UTF8Insert('-', path, i);              // 代わりに'-'を挿入する
-    end;
-  end;
-  Result := path;
-end;
 {$ELSE}
-function PathFilter(PassName: string): string;
-var
-	i, l: integer;
-  path: string;
-  tmp: AnsiString;
-  ch: char;
-begin
-  // ファイル名を一旦ShiftJISに変換して再度Unicode化することでShiftJISで使用
-  // 出来ない文字を除去する
-  tmp := AnsiString(PassName);
+  tmp  := AnsiString(PassName);
 	path := string(tmp);
-  l :=  Length(path);
-  for i := 1 to l do
-  begin
-  	ch := Char(path[i]);
-    if Pos(ch, '\/;:*?"<>|. '+#$09) > 0 then
-      path[i] := '-';
-  end;
+{$ENDIF}
+  // ファイル名として使用できない文字を'-'に置換する
+  path := ReplaceRegExpr('[\\/:;\*\?\+,."<>|\.\t ]', path, '-');
+
   Result := path;
 end;
-{$ENDIF}
 
 // 小説本文をHTMLから抜き出して整形する
 function ParsePage(Page: string): Boolean;
@@ -627,6 +593,9 @@ procedure ParseCapter(MainPage: string);
 var
   sp, ep: integer;
   ss, ts, title, auther, authurl, fn, sendstr: string;
+{$IFDEF FPC}
+  ws: WideString;
+{$ENDIF}
   r: TRegExpr;
   conhdl: THandle;
 begin
@@ -648,6 +617,9 @@ begin
           UTF8Delete(ss, 1, 1);
         // タイトル名からファイル名に使用できない文字を除去する
         title := PathFilter(Restore2RealChar(ss));
+        // タイトル名に"完結"が含まれていなければ先頭に小説の連載状況を追加する
+        if UTF8Pos('完結', title) = 0 then
+          title := NvStat + title;
         // 引数に保存するファイル名を指定していなかった場合、タイトル名からファイル名を作成する
         if UTF8Length(Filename) = 0 then
         begin
@@ -658,9 +630,6 @@ begin
             fn := fn + '(' + StartPage + ')';
           Filename := Path + fn + '.txt';
         end;
-        // タイトル名に"完結"が含まれていなければ先頭に小説の連載状況を追加する
-        if UTF8Pos('完結', title) = 0 then
-          title := NvStat + title;
         // タイトル名を保存
         TextPage.Add(title);
         LogFile.Add('タイトル：' + title);
@@ -749,8 +718,14 @@ begin
               conhdl := GetStdHandle(STD_OUTPUT_HANDLE);
               sendstr := title + ',' + auther;
               Cds.dwData := PageList.Count - StartN + 1;
+            {$IFDEF FPC}
+              ws := UTF8ToUTF16(sendstr);
+              Cds.cbData := ByteLength(ws) + 2;
+              Cds.lpData := PWideChar(ws);
+            {$ELSE}
               Cds.cbData := (Length(sendstr) + 1) * SizeOf(Char);
               Cds.lpData := Pointer(sendstr);
+            {$ENDIF}
               SendMessage(hWnd, WM_COPYDATA, conhdl, LPARAM(Addr(Cds)));
             end;
           end;
@@ -764,30 +739,13 @@ end;
 
 // 小説の連載状況をチェックする
 function GetNovelStatus(MainPage: string): string;
-var
-  str: string;
-  //m: TMatch;
-  r: TRegExpr;
 begin
   Result := '';
-  r := TRegExpr.Create;
-  try
-    //m := TRegEx.Match(MainPage, '<ul class=.*?><li class=.*?><div class=.*?>.*?<!-- --> 全<!-- -->');
-    r.Expression  := '<ul class=.*?><li class=.*?><div class=.*?>.*?<!-- --> 全<!-- -->';
-    r.InputString := MainPage;
-    //if m.Index > 1 then
-    if r.Exec then
-    begin
-      //str := Copy(MainPage, m.Index, m.Length);
-      str := UTF8Copy(MainPage, r.MatchPos[0], r.MatchLen[0]);
-      if UTF8Pos('連載中', str) > 0 then
-        Result := '【連載中】'
-      else if UTF8Pos('完結済', str) > 0 then
-        Result := '【完結】';
-    end;
-  finally
-    r.Free;;
-  end;
+
+  if UTF8Pos('">連載中<!-- --> 全<!-- -->', MainPage) > 1 then
+    Result := '【連載中】'
+  else if UTF8Pos('">完結済<!-- --> 全<!-- -->', MainPage) > 0 then
+    Result := '【完結】';
 end;
 
 var
@@ -798,7 +756,7 @@ begin
   if ParamCount = 0 then
   begin
     Writeln('');
-    Writeln('kakuyomudl ver4.0 2024/07/11 (c) INOUE, masahiro.');
+    Writeln('kakuyomudl ver4.1 2025/3/7 (c) INOUE, masahiro.');
     Writeln('  使用方法');
     Writeln('  kakuyomudl [-sDL開始ページ番号] 小説トップページのURL [保存するファイル名(省略するとタイトル名で保存します)]');
     Exit;
