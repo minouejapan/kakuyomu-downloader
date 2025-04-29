@@ -1,6 +1,9 @@
 ﻿(*
   カクヨム小説ダウンローダー[kakuyomudl]
 
+  4.3 2025/04/29  作品タイトル名とあらすじのHTMLエスケープ文字をデコードするようにした
+  4.2 2025/04/11  出力テキストの作品タイトル名にもファイル名フィルターを通したものを適用していた不具合を修正した
+                  青空文庫タグ出力時の無駄な改行挿入を調整した
   4.1 2025/03/07  一部の作品で連載状況を取得出来なかった不具合を修正した
                   ファイル名にも連載状況を付加するようにした
   4.0 2024/07/11  Lazarusに移植した上でLazarus/Delphiどちらでもビルド出来るようにした
@@ -534,7 +537,7 @@ begin
             TextPage.Add(body);
             TextPage.Add('');
             TextPage.Add(AO_PB2);
-            TextPage.Add('');
+            //TextPage.Add('');
           end;
         end else begin
           Writeln(subt + ' から本文を抽出出来ませんでした.');
@@ -592,7 +595,7 @@ end;
 procedure ParseCapter(MainPage: string);
 var
   sp, ep: integer;
-  ss, ts, title, auther, authurl, fn, sendstr: string;
+  ss, ts, title, fname, auther, authurl, fn, sendstr: string;
 {$IFDEF FPC}
   ws: WideString;
 {$ENDIF}
@@ -616,14 +619,19 @@ begin
         while (ss[1] <= ' ') do
           UTF8Delete(ss, 1, 1);
         // タイトル名からファイル名に使用できない文字を除去する
-        title := PathFilter(Restore2RealChar(ss));
+        title := Restore2Realchar(ss);
+        fname := title;
         // タイトル名に"完結"が含まれていなければ先頭に小説の連載状況を追加する
         if UTF8Pos('完結', title) = 0 then
+        begin
           title := NvStat + title;
+          fname := NvStat + fname;
+        end;
+        fname := PathFilter(Restore2RealChar(fname));
         // 引数に保存するファイル名を指定していなかった場合、タイトル名からファイル名を作成する
         if UTF8Length(Filename) = 0 then
         begin
-          fn := title;
+          fn := fname;
           if Length(fn) > 26 then
             UTF8Delete(fn, 27, UTF8Length(fn) - 26);
           if StartPage <> '' then
@@ -658,7 +666,7 @@ begin
             TextPage.Add(auther);
             TextPage.Add('');
             TextPage.Add(AO_PB2);
-            TextPage.Add('');
+            //TextPage.Add('');
             LogFile.Add('作者　　：' + auther);
             if authurl <> '' then
               LogFile.Add('作者URL : ' + authurl);
@@ -688,6 +696,7 @@ begin
                 ts := UTF8StringReplace(ts, '…続きを読む', '', [rfReplaceAll]);
                 ts := ChangeImage(ts);
                 ts := ChangeAozoraTag(ts);
+                ts := Restore2Realchar(ts);
                 TextPage.Add(AO_KKL);
                 TextPage.Add(ts);  // 前書きに《》を使う作者がいたりして
                 TextPage.Add(AO_KKR);
@@ -756,7 +765,7 @@ begin
   if ParamCount = 0 then
   begin
     Writeln('');
-    Writeln('kakuyomudl ver4.1 2025/3/7 (c) INOUE, masahiro.');
+    Writeln('kakuyomudl ver4.2 2025/4/11 (c) INOUE, masahiro.');
     Writeln('  使用方法');
     Writeln('  kakuyomudl [-sDL開始ページ番号] 小説トップページのURL [保存するファイル名(省略するとタイトル名で保存します)]');
     Exit;
