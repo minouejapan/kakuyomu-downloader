@@ -1,7 +1,7 @@
 
 1 VERSIONINFO
-FILEVERSION 4,3,0,0
-PRODUCTVERSION 4,3,0,0
+FILEVERSION 4,4,0,0
+PRODUCTVERSION 4,4,0,0
 FILEOS 0x4
 FILETYPE 0x1
 {
@@ -12,11 +12,11 @@ BLOCK "StringFileInfo"
     VALUE "Comments", "フリーソフトです"
     VALUE "CompanyName", ""
     VALUE "FileDescription", "フリーソフトです"
-		VALUE "FileVersion", "4.3.0.0"
+		VALUE "FileVersion", "4.4.0.0"
 		VALUE "LegalCopyright", "INOUE, masahiro"
 		VALUE "OriginalFilename", "kakuyomudl.exe"
 		VALUE "ProductName", "カクヨムテキストダウンローダー"
-		VALUE "ProductVersion", "4.3"
+		VALUE "ProductVersion", "4.4"
 	}
 }
 

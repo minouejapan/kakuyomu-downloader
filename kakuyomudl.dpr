@@ -1,6 +1,7 @@
 ﻿(*
   カクヨム小説ダウンローダー[kakuyomudl]
 
+  4.4 2025/05/12  unicodeエスケープ文字(\uxxxx)のデコードを追加した
   4.3 2025/04/29  作品タイトル名とあらすじのHTMLエスケープ文字をデコードするようにした
   4.2 2025/04/11  出力テキストの作品タイトル名にもファイル名フィルターを通したものを適用していた不具合を修正した
                   青空文庫タグ出力時の無駄な改行挿入を調整した
@@ -351,6 +352,7 @@ var
   tmp, cd: string;
   w: integer;
   ch: Char;
+  wch: WideChar;
   r: TRegExpr;
 begin
   // エスケープされた文字
@@ -366,6 +368,7 @@ begin
   // 正規表現による処理に変更した(2024/3/9)
   r := TRegExpr.Create;
   try
+    // HTMLエスケープ文字(&#xxxx;)
     r.Expression  := '&#.*?;';
     r.InputString := tmp;
     if r.Exec then
@@ -384,6 +387,25 @@ begin
           ch := '？';
         end;
         UTF8Insert(ch, tmp, r.MatchPos[0]);
+      until not r.ExecNext;
+    end;
+    // unicodeエスケープ文字(\uxxxx)
+    r.Expression  := '\\u[0-9A-Fa-f]{4}';
+    r.InputString := tmp;
+    if r.Exec then
+    begin
+      repeat
+        UTF8Delete(tmp, r.MatchPos[0], r.MatchLen[0]);
+        cd := r.Match[0];
+        UTF8Delete(cd, 1, 2);   // \uを削除する
+        UTF8Insert('$', cd, 1); // 先頭に16進数接頭文字$を追加する
+        try
+          w := StrToInt(cd);
+          wch := Char(w);
+        except
+          wch := '？';
+        end;
+        UTF8Insert(Char(wch), tmp, r.MatchPos[0]);
       until not r.ExecNext;
     end;
   finally
@@ -765,7 +787,7 @@ begin
   if ParamCount = 0 then
   begin
     Writeln('');
-    Writeln('kakuyomudl ver4.2 2025/4/11 (c) INOUE, masahiro.');
+    Writeln('kakuyomudl ver4.4 2025/5/12 (c) INOUE, masahiro.');
     Writeln('  使用方法');
     Writeln('  kakuyomudl [-sDL開始ページ番号] 小説トップページのURL [保存するファイル名(省略するとタイトル名で保存します)]');
     Exit;
