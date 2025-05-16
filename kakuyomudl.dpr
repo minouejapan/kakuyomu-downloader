@@ -1,6 +1,7 @@
 ﻿(*
   カクヨム小説ダウンローダー[kakuyomudl]
 
+  4.5 2025/05/16  unicodeエスケープ文字(\uxxxx)のデコードがおかしかったため修正した
   4.4 2025/05/12  unicodeエスケープ文字(\uxxxx)のデコードを追加した
   4.3 2025/04/29  作品タイトル名とあらすじのHTMLエスケープ文字をデコードするようにした
   4.2 2025/04/11  出力テキストの作品タイトル名にもファイル名フィルターを通したものを適用していた不具合を修正した
@@ -349,7 +350,7 @@ end;
 // 2)&#x????; → 通常の文字
 function Restore2RealChar(Base: string): string;
 var
-  tmp, cd: string;
+  tmp, cd, rcd: string;
   w: integer;
   ch: Char;
   wch: WideChar;
@@ -395,8 +396,8 @@ begin
     if r.Exec then
     begin
       repeat
-        UTF8Delete(tmp, r.MatchPos[0], r.MatchLen[0]);
         cd := r.Match[0];
+        rcd := '\' + cd;
         UTF8Delete(cd, 1, 2);   // \uを削除する
         UTF8Insert('$', cd, 1); // 先頭に16進数接頭文字$を追加する
         try
@@ -405,7 +406,7 @@ begin
         except
           wch := '？';
         end;
-        UTF8Insert(Char(wch), tmp, r.MatchPos[0]);
+        tmp := ReplaceRegExpr(rcd, tmp, wch);
       until not r.ExecNext;
     end;
   finally
@@ -449,15 +450,15 @@ end;
 function PathFilter(PassName: string): string;
 var
   path: string;
-  tmp: AnsiString;
+  tmp: WideString;
 begin
   // ファイル名を一旦ShiftJISに変換して再度Unicode化することでShiftJISで使用
   // 出来ない文字を除去する
 {$IFDEF FPC}
-  tmp  := UTF8ToWinCP(PassName);
-  path := WinCPToUTF8(tmp);      // これでUTF-8依存文字は??に置き換わる
+  tmp  := UTF8ToUTF16(PassName);
+  path := UTF16ToUTF8(tmp);      // これでUTF-8依存文字は??に置き換わる
 {$ELSE}
-  tmp  := AnsiString(PassName);
+  tmp  := WideString(PassName);
 	path := string(tmp);
 {$ENDIF}
   // ファイル名として使用できない文字を'-'に置換する
@@ -787,7 +788,7 @@ begin
   if ParamCount = 0 then
   begin
     Writeln('');
-    Writeln('kakuyomudl ver4.4 2025/5/12 (c) INOUE, masahiro.');
+    Writeln('kakuyomudl ver4.5 2025/5/16 (c) INOUE, masahiro.');
     Writeln('  使用方法');
     Writeln('  kakuyomudl [-sDL開始ページ番号] 小説トップページのURL [保存するファイル名(省略するとタイトル名で保存します)]');
     Exit;
