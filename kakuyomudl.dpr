@@ -1,6 +1,7 @@
 ﻿(*
   カクヨム小説ダウンローダー[kakuyomudl]
 
+  4.6 2025/05/26  あらすじの"が\"にエスケープされるため元の"に戻す処理を追加した
   4.5 2025/05/16  unicodeエスケープ文字(\uxxxx)のデコードがおかしかったため修正した
   4.4 2025/05/12  unicodeエスケープ文字(\uxxxx)のデコードを追加した
   4.3 2025/04/29  作品タイトル名とあらすじのHTMLエスケープ文字をデコードするようにした
@@ -710,16 +711,20 @@ begin
                 ts := UTF8Copy(ts, 1, ep - 1);
                 // あらすじ部分の改行が\n表記となったため直接CRLFに置換する
                 ts := UTF8StringReplace(ts, '\n', CRLF, [rfReplaceAll]);
+                // あらすじ部分の"が\"とエスケープされているため"に戻す
+                ts := UTF8StringReplace(ts, '\"', '"', [rfReplaceAll]);
                 ts := ElimTag(ts);
                 // 余分なタグを除去する
                 sp := UTF8Pos('<', ts);
                 if sp > 1 then
                   UTF8Delete(ts, sp, Length(ts));
+                // ここから ===========
                 // 前書きの最後にある"…続きを読む"を削除する
                 ts := UTF8StringReplace(ts, '…続きを読む', '', [rfReplaceAll]);
                 ts := ChangeImage(ts);
                 ts := ChangeAozoraTag(ts);
                 ts := Restore2Realchar(ts);
+                // ========== ここまでの処理は不要かも知れない
                 TextPage.Add(AO_KKL);
                 TextPage.Add(ts);  // 前書きに《》を使う作者がいたりして
                 TextPage.Add(AO_KKR);
@@ -788,7 +793,7 @@ begin
   if ParamCount = 0 then
   begin
     Writeln('');
-    Writeln('kakuyomudl ver4.5 2025/5/16 (c) INOUE, masahiro.');
+    Writeln('kakuyomudl ver4.6 2025/5/26 (c) INOUE, masahiro.');
     Writeln('  使用方法');
     Writeln('  kakuyomudl [-sDL開始ページ番号] 小説トップページのURL [保存するファイル名(省略するとタイトル名で保存します)]');
     Exit;
