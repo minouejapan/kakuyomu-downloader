@@ -1,6 +1,8 @@
 ﻿(*
   カクヨム小説ダウンローダー[kakuyomudl]
 
+  4.7 2026/03/06  章サブタイトル(chapterTitle level2)が適切に処理できるよう修正した
+                  ターゲットOSの汎用性を高めるためHTML読み込みをUniHTMLユニットに変更した
   4.6 2025/05/26  あらすじの"が\"にエスケープされるため元の"に戻す処理を追加した
   4.5 2025/05/16  unicodeエスケープ文字(\uxxxx)のデコードがおかしかったため修正した
   4.4 2025/05/12  unicodeエスケープ文字(\uxxxx)のデコードを追加した
@@ -60,13 +62,20 @@ program kakuyomudl;
 //{$R *.dres}
 
 uses
+{$IFDEF FPC}
+  SysUtils,
+  CLasses,
+  Messages,
+  lazUTF8,
+{$ELSE}
   LazUTF8wrap,
   System.SysUtils,
   System.Classes,
   WinAPI.Messages,
+{$ENDIF}
   Windows,
   regexpr,
-  WinInet;
+  UniHTML;
 
 const
   // データ抽出用の識別タグ
@@ -81,9 +90,9 @@ const
   SSTRURLE = '","title":"';
   SSTTLE   = '",';
 
-  SCAPTB   = '<p class="chapterTitle level1 js-vertical-composition-item"><span>';
-  SCAPTB2   = '<p class="chapterTitle level2 js-vertical-composition-item"><span>';
-  SCAPTE   = '</span>';
+  SCHAPTB  = '<p class="chapterTitle level1 js-vertical-composition-item"><span>';
+  SCHAPTB2 = '<p class="chapterTitle level2 js-vertical-composition-item"><span>';
+  SCHAPTE  = '</span>';
   SEPISB   = '<p class="widget-episodeTitle js-vertical-composition-item">';
   SEPISE   = '</p>';
   SBODYB   = '<p id="p1"';
@@ -148,66 +157,11 @@ var
   TextPage,
   LogFile: TStringList;
   TextLine,
-  Capter, URL, Path, FileName,
+  Chapter, URL, Path, FileName,
   NvStat, StartPage: string;
   hWnd: THandle;
   CDS: TCopyDataStruct;
   StartN: integer;
-
-
-// WinINetを用いたHTMLファイルのダウンロード
-function LoadFromHTML(URLadr: string): string;
-var
-  hSession    : HINTERNET;
-  hService    : HINTERNET;
-  dwBytesRead : DWORD;
-  dwFlag      : DWORD;
-  lpBuffer    : PChar;
-  RBuff       : TMemoryStream;
-  TBuff       : TStringList;
-begin
-  Result   := '';
-  hSession := InternetOpen('WinINet', INTERNET_OPEN_TYPE_PRECONFIG, nil, nil, 0);
-
-  if Assigned(hSession) then
-  begin
-    dwFlag   := INTERNET_FLAG_RELOAD;
-    hService := InternetOpenUrl(hSession, PChar(URLadr), nil, 0, dwFlag, 0);
-    if Assigned(hService ) then
-    begin
-      RBuff := TMemoryStream.Create;
-      try
-        lpBuffer := AllocMem(65536);
-        try
-          dwBytesRead := 65535;
-          while True do
-          begin
-            if InternetReadFile(hService, lpBuffer, 65535,{SizeOf(lpBuffer),}dwBytesRead) then
-            begin
-              if dwBytesRead = 0 then
-                break;
-              RBuff.WriteBuffer(lpBuffer^, dwBytesRead);
-            end else
-              break;
-          end;
-        finally
-          FreeMem(lpBuffer);
-        end;
-        TBuff := TStringList.Create;
-        try
-          RBuff.Position := 0;
-          TBuff.LoadFromStream(RBuff, TEncoding.UTF8);
-          Result := TBuff.Text;
-        finally
-          TBuff.Free;
-        end;
-      finally
-        RBuff.Free;
-      end;
-    end;
-    InternetCloseHandle(hService);
-  end;
-end;
 
 // HTMLテキスト内のCR/LF(#$0D#$0A)を除去する
 function ElimCRLF(Base: string): string;
@@ -472,7 +426,7 @@ end;
 function ParsePage(Page: string): Boolean;
 var
   sp, ep: integer;
-  capt, subt, body: string;
+  chapt, subt, body: string;
 begin
   Result := False;
 
@@ -480,37 +434,41 @@ begin
 
   //Page := ElimCRLF(Page);
   // 章(Chapter)＋話(Episode)構成の場合と話(Episode)だけの場合があるため、まずは章があれば処理して次に話を処理する
-  sp := UTF8Pos(SCAPTB, Page);  // 章(Chapter Level-1)をチェック
+  sp := UTF8Pos(SCHAPTB, Page);  // 章(Chapter Level-1)をチェック
   if sp > 1 then
   begin
-    UTF8Delete(Page, 1, UTF8Length(SCAPTB) + sp - 1);
-    ep := UTF8Pos(SCAPTE, Page);
+    UTF8Delete(Page, 1, UTF8Length(SCHAPTB) + sp - 1);
+    ep := UTF8Pos(SCHAPTE, Page);
     if ep > 1 then
     begin
-      capt := UTF8Copy(Page, 1, ep - 1);
-      capt := TrimSpace(capt);
-      if Capter = capt then
-        capt := ''
+      chapt := UTF8Copy(Page, 1, ep - 1);
+      chapt := TrimSpace(chapt);
+      if Chapter = chapt then
+        chapt := ''
       else
-        Capter := capt;
-      UTF8Delete(Page, 1, UTF8Length(SCAPTE) + ep - 1);
+        Chapter := chapt;
+      UTF8Delete(Page, 1, UTF8Length(SCHAPTE) + ep - 1);
     end;
   end;
-  sp := UTF8Pos(SCAPTB2, Page);  // 章(Chapter Level-2)をチェック
+  sp := UTF8Pos(SCHAPTB2, Page);  // 章(Chapter Level-2)をチェック
   if sp > 1 then
   begin
-    UTF8Delete(Page, 1, UTF8Length(SCAPTB) + sp - 1);
-    ep := UTF8Pos(SCAPTE, Page);
+    UTF8Delete(Page, 1, UTF8Length(SCHAPTB) + sp - 1);
+    ep := UTF8Pos(SCHAPTE, Page);
+    // 章Level-2がある
     if ep > 1 then
     begin
-      capt := UTF8Copy(Page, 1, ep - 1);
-      capt := TrimSpace(capt);
-      capt := Restore2RealChar(capt);
-      if Capter = capt then
-        capt := ''
-      else
-        Capter := capt;
-      UTF8Delete(Page, 1, UTF8Length(SCAPTE) + ep - 1);
+      chapt := UTF8Copy(Page, 1, ep - 1);
+      chapt := TrimSpace(chapt);
+      chapt := Restore2RealChar(chapt);
+      // 章がある場合は章【章Level-2】と構成する
+      if Chapter <> '' then
+        chapt := CHapter + '【' + chapt +'】';
+      //if Chapter = chapt then
+      //  chapt := ''
+      //else
+      //  Chapter := chapt;
+      UTF8Delete(Page, 1, UTF8Length(SCHAPTE) + ep - 1);
     end;
   end;
   sp := UTF8Pos(SEPISB, Page);  // 話(Episode)をチェック
@@ -547,8 +505,8 @@ begin
           body := ChangeRuby(body);       // ルビのタグを変換する
           body := Restore2RealChar(body); // エスケースされた特殊文字を本来の文字に変換する
 
-          if Length(capt) > 1 then
-            TextPage.Add(AO_CPB + capt + AO_CPE);
+          if Length(chapt) > 1 then
+            TextPage.Add(AO_CPB + chapt + AO_CPE);
 
           sp := UTF8Pos(SERRSTR, body);
           if (sp > 0) and (sp < 10) then
@@ -593,10 +551,11 @@ begin
     i := 0;
   n := 1;
   sc := cnt - i;
+  Chapter := '';
 
   while i < cnt do
   begin
-    line := LoadFromHTML(PageList.Strings[i]);
+    line := GetHTML(PageList.Strings[i]);
     if line <> '' then
     begin
       ParsePage(line);
@@ -616,7 +575,7 @@ begin
 end;
 
 // トップページからタイトル、作者、前書き、各話情報を取り出す
-procedure ParseCapter(MainPage: string);
+procedure ParseChapter(MainPage: string);
 var
   sp, ep: integer;
   ss, ts, title, fname, auther, authurl, fn, sendstr: string;
@@ -793,7 +752,7 @@ begin
   if ParamCount = 0 then
   begin
     Writeln('');
-    Writeln('kakuyomudl ver4.6 2025/5/26 (c) INOUE, masahiro.');
+    Writeln('kakuyomudl ver4.7 2026/3/6 (c) INOUE, masahiro.');
     Writeln('  使用方法');
     Writeln('  kakuyomudl [-sDL開始ページ番号] 小説トップページのURL [保存するファイル名(省略するとタイトル名で保存します)]');
     Exit;
@@ -851,8 +810,8 @@ begin
     Exit;
   end;
 
-  Capter := '';
-  TextLine := LoadFromHTML(URL);
+  Chapter := '';
+  TextLine := GetHTML(URL);
   if TextLine <> '' then
   begin
     PageList := TStringList.Create;
@@ -861,7 +820,7 @@ begin
     LogFile.Add(URL);
     try
       NvStat := GetNovelStatus(TextLine);       // 小説の連載状況を取得
-      ParseCapter(TextLine);                    // 小説の目次情報を取得
+      ParseChapter(TextLine);                    // 小説の目次情報を取得
       if PageList.Count >= StartN then
       begin
         LoadEachPage;                           // 小説各話情報を取得
