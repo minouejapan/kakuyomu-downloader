@@ -1,6 +1,7 @@
 ﻿(*
   カクヨム小説ダウンローダー[kakuyomudl]
 
+  4.8 2026/03/15  タイトル名が不完全になる場合があった不具合を修正した
   4.7 2026/03/06  章サブタイトル(chapterTitle level2)が適切に処理できるよう修正した
                   ターゲットOSの汎用性を高めるためHTML読み込みをUniHTMLユニットに変更した
   4.6 2025/05/26  あらすじの"が\"にエスケープされるため元の"に戻す処理を追加した
@@ -57,22 +58,22 @@ program kakuyomudl;
 {$ENDIF}
 
 {$R *.res}
-{$R 'verinfo.res' 'verinfo.rc'}
+{$R verinfo.res}
+
 
 //{$R *.dres}
 
 uses
-{$IFDEF FPC}
+  {$IFDEF FPC}
   SysUtils,
-  CLasses,
-  Messages,
-  lazUTF8,
-{$ELSE}
+  Classes,
+  LazUTF8,
+  {$ELSE}
   LazUTF8wrap,
   System.SysUtils,
   System.Classes,
   WinAPI.Messages,
-{$ENDIF}
+  {$ENDIF }
   Windows,
   regexpr,
   UniHTML;
@@ -578,7 +579,7 @@ end;
 procedure ParseChapter(MainPage: string);
 var
   sp, ep: integer;
-  ss, ts, title, fname, auther, authurl, fn, sendstr: string;
+  body, ss, ts, title, fname, auther, authurl, fn, sendstr: string;
 {$IFDEF FPC}
   ws: WideString;
 {$ENDIF}
@@ -588,17 +589,24 @@ begin
   Write('小説情報を取得中 ' + URL + ' ... ');
   r := TRegExpr.Create;
   try
+    // 必要部分だけを切り取る
+    r.Expression  := '<h1.*?<a title=.*?</body></html>';
+    r.InputString := MainPage;
+    if r.Exec then
+      body := r.Match[0]
+    else
+      body := MainPage;
     // タイトル名
     r.Expression  := STITLEB;
-    r.InputString := MainPage;
+    r.InputString := body;
     if r.Exec then
     begin
       sp := r.MatchPos[0];
-      UTF8Delete(MainPage, 1, sp + r.MatchLen[0] - 1);
-      sp := UTF8Pos(STITLEE, MainPage);
+      UTF8Delete(body, 1, sp + r.MatchLen[0] - 1);
+      sp := UTF8Pos(STITLEE, body);
       if sp > 1 then
       begin
-        ss := UTF8Copy(MainPage, 1, sp - 1);
+        ss := UTF8Copy(body, 1, sp - 1);
         while (ss[1] <= ' ') do
           UTF8Delete(ss, 1, 1);
         // タイトル名からファイル名に使用できない文字を除去する
@@ -624,26 +632,26 @@ begin
         // タイトル名を保存
         TextPage.Add(title);
         LogFile.Add('タイトル：' + title);
-        UTF8Delete(MainPage, 1, sp + UTF8Length(STITLEE));
+        UTF8Delete(body, 1, sp + UTF8Length(STITLEE));
         authurl := '';
         // 作者URL
-        sp := UTF8Pos(SAUTHERB, MainPage);
+        sp := UTF8Pos(SAUTHERB, body);
         if sp > 1  then
         begin
-          UTF8Delete(MainPage, 1, sp + UTF8Length(SAUTHERB) - 1);
+          UTF8Delete(body, 1, sp + UTF8Length(SAUTHERB) - 1);
           r.Expression  := SAUTHERM;
-          r.InputString := MainPage;
+          r.InputString := body;
           if r.Exec then
           begin
             ep := r.MatchPos[0];
-            ts := UTF8Copy(MainPage, 1, ep - 1);
+            ts := UTF8Copy(body, 1, ep - 1);
             authurl := 'https://kakuyomu.jp' + ts;  // 作者URL
-            UTF8Delete(MainPage, 1, ep + r.MatchLen[0] - 1);
-            ep := UTF8Pos(SAUTHERE, MainPage);
+            UTF8Delete(body, 1, ep + r.MatchLen[0] - 1);
+            ep := UTF8Pos(SAUTHERE, body);
             if ep > 1 then
             begin
-              auther := UTF8Copy(MainPage, 1, ep - 1);
-              UTF8Delete(MainPage, 1, ep + Length(SAUTHERE));
+              auther := UTF8Copy(body, 1, ep - 1);
+              UTF8Delete(body, 1, ep + Length(SAUTHERE));
             end;
             // 作者名を保存
             TextPage.Add(auther);
@@ -654,16 +662,16 @@ begin
             if authurl <> '' then
               LogFile.Add('作者URL : ' + authurl);
             // #$0D#$0Aを削除する
-            MainPage := ElimCRLF(MainPage);
-            UTF8Delete(MainPage, 1, ep + UTF8Length(SAUTHERE));
+            body := ElimCRLF(body);
+            UTF8Delete(body, 1, ep + UTF8Length(SAUTHERE));
             // 前書き（あらすじ）
             r.Expression  := SHEADERB;
-            r.InputString := MainPage;
+            r.InputString := body;
             if r.Exec then
             begin
               sp := r.MatchPos[0];
               // 省略されていない前書きはソースの一番下にあるためコピーを作って作業する
-              ts := UTF8Copy(MainPage, sp + UTF8Length(SHEADERB), UTF8Length(MainPage));
+              ts := UTF8Copy(body, sp + UTF8Length(SHEADERB), UTF8Length(body));
               ep := UTF8Pos(SHEADERE, ts);
               if ep > 1 then
               begin
@@ -693,17 +701,17 @@ begin
               end;
             end;
             // 各話のURLを取得する
-            sp := UTF8Pos(SSTRURLB, MainPage);
+            sp := UTF8Pos(SSTRURLB, body);
             while sp > 1 do
             begin
-              UTF8Delete(MainPage, 1, sp + UTF8Length(SSTRURLB) - 1);
-              ep := UTF8Pos(SSTRURLE, MainPage);
+              UTF8Delete(body, 1, sp + UTF8Length(SSTRURLB) - 1);
+              ep := UTF8Pos(SSTRURLE, body);
               if ep > 1 then
               begin
-                ts := Copy(MainPage, 1, ep - 1);
+                ts := Copy(body, 1, ep - 1);
                 PageList.Add(URL + '/episodes/' + ts);
-                UTF8Delete(MainPage, 1, ep + UTF8Length(SSTRURLE) - 1);
-                sp := UTF8Pos(SSTRURLB, MainPage);
+                UTF8Delete(body, 1, ep + UTF8Length(SSTRURLE) - 1);
+                sp := UTF8Pos(SSTRURLB, body);
               end else
                 Break;
             end;
@@ -752,7 +760,7 @@ begin
   if ParamCount = 0 then
   begin
     Writeln('');
-    Writeln('kakuyomudl ver4.7 2026/3/6 (c) INOUE, masahiro.');
+    Writeln('kakuyomudl ver4.8 2026/3/15 (c) INOUE, masahiro.');
     Writeln('  使用方法');
     Writeln('  kakuyomudl [-sDL開始ページ番号] 小説トップページのURL [保存するファイル名(省略するとタイトル名で保存します)]');
     Exit;
