@@ -1,6 +1,7 @@
 ﻿(*
   カクヨム小説ダウンローダー[kakuyomudl]
 
+  4.9 2026/03/16  あらすじ、本文の取得を正規表現処理に変更した
   4.8 2026/03/15  タイトル名が不完全になる場合があった不具合を修正した
   4.7 2026/03/06  章サブタイトル(chapterTitle level2)が適切に処理できるよう修正した
                   ターゲットOSの汎用性を高めるためHTML読み込みをUniHTMLユニットに変更した
@@ -186,8 +187,8 @@ var
   tmp: string;
 begin
   Result := '';
-  Base := UTF8StringReplace(Base, '</p>', '', [rfReplaceAll]);
-  Base := UTF8StringReplace(Base, '</a>', '', [rfReplaceAll]);
+  Base := ReplaceRegExpr('<.*?>', Base, '');
+  Base := ReplaceRegExpr(' ', Base, '');
   tmplist := TStringList.Create;
   try
     tmplist.Text := Base;
@@ -428,6 +429,7 @@ function ParsePage(Page: string): Boolean;
 var
   sp, ep: integer;
   chapt, subt, body: string;
+  r: TRegExpr;
 begin
   Result := False;
 
@@ -483,28 +485,28 @@ begin
       subt := TrimSpace(subt);
       subt := Restore2RealChar(subt);
       UTF8Delete(Page, 1, UTF8Length(SEPISE) + ep);
-      sp  := UTF8Pos(SBODYB, Page);
-      if sp = 0 then
-      begin
-        sp := UTF8Pos(SBODYB2, Page);
-      end;
-      if sp > 1 then
-      begin
-        UTF8Delete(Page, 1, + sp - 1);
-        //sp := UTF8Pos(SBODYM, Page);
-        //if sp > 0 then
-        //  UTF8Delete(Page, 1, sp);
-        ep := UTF8Pos(SBODYE, Page);
-        if ep > 1 then
+      r := TRegExpr.Create;
+      try
+        r.InputString := Page;
+        r.Expression  := '<p id="p1".*?</div>';
+        if r.Exec then
         begin
-          body := UTF8Copy(Page, 1, ep - 1);
+          body := r.Match[0];
+				end else begin
+          r.Expression := '<figure id="p1".*?</div>';
+          if r.Exec then
+            body := r.Match[0]
+				  else
+            body := '';
+        end;
+        if body <> '' then
+        begin
           body := ChangeBRK(body);        // </ br>をCRLFに変換する
           body := ChangeImage(body);      // 埋め込み画像リンクを変換する
           body := Delete_href(body);      // 本文中のリンクタグを除去する
-          //body := ChangeURL(body);        // ベタ書きURLをリンクタグに変換する
-          body := ElimBodyTag(body);      // 本文内の整形タグを削除する（カクヨム限定）
           body := ChangeRuby(body);       // ルビのタグを変換する
           body := Restore2RealChar(body); // エスケースされた特殊文字を本来の文字に変換する
+          body := ElimBodyTag(body);      // 本文内の整形タグを削除する（カクヨム限定）
 
           if Length(chapt) > 1 then
             TextPage.Add(AO_CPB + chapt + AO_CPE);
@@ -520,12 +522,12 @@ begin
             TextPage.Add(body);
             TextPage.Add('');
             TextPage.Add(AO_PB2);
-            //TextPage.Add('');
           end;
-        end else begin
+				end else
           Writeln(subt + ' から本文を抽出出来ませんでした.');
-        end;
-      end;
+			finally
+        r.Free;
+			end;
     end;
   end;
 end;
@@ -665,40 +667,31 @@ begin
             body := ElimCRLF(body);
             UTF8Delete(body, 1, ep + UTF8Length(SAUTHERE));
             // 前書き（あらすじ）
-            r.Expression  := SHEADERB;
+            r.Expression  := '"introduction":".*?",';
             r.InputString := body;
             if r.Exec then
             begin
-              sp := r.MatchPos[0];
+              ts := r.Match[0];
               // 省略されていない前書きはソースの一番下にあるためコピーを作って作業する
-              ts := UTF8Copy(body, sp + UTF8Length(SHEADERB), UTF8Length(body));
-              ep := UTF8Pos(SHEADERE, ts);
-              if ep > 1 then
-              begin
-                ts := UTF8Copy(ts, 1, ep - 1);
-                // あらすじ部分の改行が\n表記となったため直接CRLFに置換する
-                ts := UTF8StringReplace(ts, '\n', CRLF, [rfReplaceAll]);
-                // あらすじ部分の"が\"とエスケープされているため"に戻す
-                ts := UTF8StringReplace(ts, '\"', '"', [rfReplaceAll]);
-                ts := ElimTag(ts);
-                // 余分なタグを除去する
-                sp := UTF8Pos('<', ts);
-                if sp > 1 then
-                  UTF8Delete(ts, sp, Length(ts));
-                // ここから ===========
-                // 前書きの最後にある"…続きを読む"を削除する
-                ts := UTF8StringReplace(ts, '…続きを読む', '', [rfReplaceAll]);
-                ts := ChangeImage(ts);
-                ts := ChangeAozoraTag(ts);
-                ts := Restore2Realchar(ts);
-                // ========== ここまでの処理は不要かも知れない
-                TextPage.Add(AO_KKL);
-                TextPage.Add(ts);  // 前書きに《》を使う作者がいたりして
-                TextPage.Add(AO_KKR);
-                TextPage.Add(AO_PB2);
-                LogFile.Add('あらすじ：');
-                LogFile.Add(ts);
-              end;
+              ts := ReplaceRegExpr('"introduction":"', ts, '');
+              ts := ReplaceRegExpr('",', ts, '');
+              // あらすじ部分の改行が\n表記となったため直接CRLFに置換する
+              ts := UTF8StringReplace(ts, '\n', CRLF, [rfReplaceAll]);
+              // あらすじ部分の"が\"とエスケープされているため"に戻す
+              ts := UTF8StringReplace(ts, '\"', '"', [rfReplaceAll]);
+              ts := ElimTag(ts);
+              // 前書きの最後にある"…続きを読む"を削除する
+              ts := UTF8StringReplace(ts, '…続きを読む', '', [rfReplaceAll]);
+              ts := ChangeImage(ts);
+              ts := ChangeAozoraTag(ts);
+              ts := Restore2Realchar(ts);
+              // ========== ここまでの処理は不要かも知れない
+              TextPage.Add(AO_KKL);
+              TextPage.Add(ts);  // 前書きに《》を使う作者がいたりして
+              TextPage.Add(AO_KKR);
+              TextPage.Add(AO_PB2);
+              LogFile.Add('あらすじ：');
+              LogFile.Add(ts);
             end;
             // 各話のURLを取得する
             sp := UTF8Pos(SSTRURLB, body);
@@ -760,7 +753,7 @@ begin
   if ParamCount = 0 then
   begin
     Writeln('');
-    Writeln('kakuyomudl ver4.8 2026/3/15 (c) INOUE, masahiro.');
+    Writeln('kakuyomudl ver4.9 2026/3/15 (c) INOUE, masahiro.');
     Writeln('  使用方法');
     Writeln('  kakuyomudl [-sDL開始ページ番号] 小説トップページのURL [保存するファイル名(省略するとタイトル名で保存します)]');
     Exit;
