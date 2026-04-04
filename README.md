@@ -6,13 +6,13 @@ Windows10/11上のコマンドプロンプト上で動作します。
 
 ### 実行ファイルの作り方
 ver4.0からDelphi/Lazarusどちらからでもビルド出来るようにしました。<br>
-Delphi (XE2以降)の場合はkakuyomudl.dprojを開いてビルドしてください。<br?
+Delphi (XE2以降)の場合はkakuyomudl.dprojを開いてビルドしてください。<br>
 Lazarus (3.0以降)の場合はkakuyomudl.lpiを開いてビルドしてください。<br>
 
 尚、ビルドするためにはTRegExprの最新版が必要です。TRegExprは https://github.com/andgineer/TRegExpr から取得してください。srcフォルダー内のregexpr.pas、regexpr_compilers.inc、regexpr_unicodedata.pasの3つのファイルをkakuyomudlプロジェクトソースファイルと同じフォルダにコピーして下さい。
 
 #### バージョン情報を編集したい場合
-　verinfo.rcファイルをテキストファイルとして開いて編集してください。尚、編集後は文字コードをShift-JISとして保存する必要があります。<br>
+verinfo.rcファイルをテキストファイルとして開いて編集してください。尚、編集後は文字コードをShift-JISとして保存する必要があります。<br>
 　編集後はコマンドラインから、rc verinfo.rcを実行すればバージョン情報リソースファイルverinfo.resが作成されます。rc.exeはDelphiやVisual Studioをインストールしていればパスが通たフォルダー内に存在しているはずです。
 
 
