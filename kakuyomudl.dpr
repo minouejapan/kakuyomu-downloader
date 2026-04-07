@@ -1,6 +1,7 @@
 ﻿(*
   カクヨム小説ダウンローダー[kakuyomudl]
 
+  4.91 2026/04/07 本文のデコード処理の順番を間違え本文内の<***>を削除していた不具合を修正した
   4.9 2026/03/16  あらすじ、本文の取得を正規表現処理に変更した
   4.8 2026/03/15  タイトル名が不完全になる場合があった不具合を修正した
   4.7 2026/03/06  章サブタイトル(chapterTitle level2)が適切に処理できるよう修正した
@@ -201,9 +202,6 @@ begin
       if p > 0 then
       begin
         UTF8Delete(tmp, 1, p + 1);
-        // 先頭の半角空白を除去する
-        while tmp[1] = ' ' do
-          UTF8Delete(tmp, 1, 1);
         tmplist[i] := tmp;
       end;
     end;
@@ -505,8 +503,8 @@ begin
           body := ChangeImage(body);      // 埋め込み画像リンクを変換する
           body := Delete_href(body);      // 本文中のリンクタグを除去する
           body := ChangeRuby(body);       // ルビのタグを変換する
-          body := Restore2RealChar(body); // エスケースされた特殊文字を本来の文字に変換する
           body := ElimBodyTag(body);      // 本文内の整形タグを削除する（カクヨム限定）
+          body := Restore2RealChar(body); // エスケースされた特殊文字を本来の文字に変換する
 
           if Length(chapt) > 1 then
             TextPage.Add(AO_CPB + chapt + AO_CPE);
@@ -581,7 +579,7 @@ end;
 procedure ParseChapter(MainPage: string);
 var
   sp, ep: integer;
-  body, ss, ts, title, fname, auther, authurl, fn, sendstr: string;
+  body, ss, ts, title, fname, author, authurl, fn, sendstr: string;
 {$IFDEF FPC}
   ws: WideString;
 {$ENDIF}
@@ -652,15 +650,15 @@ begin
             ep := UTF8Pos(SAUTHERE, body);
             if ep > 1 then
             begin
-              auther := UTF8Copy(body, 1, ep - 1);
+              author := UTF8Copy(body, 1, ep - 1);
               UTF8Delete(body, 1, ep + Length(SAUTHERE));
             end;
             // 作者名を保存
-            TextPage.Add(auther);
+            TextPage.Add(author);
             TextPage.Add('');
             TextPage.Add(AO_PB2);
             //TextPage.Add('');
-            LogFile.Add('作者　　：' + auther);
+            LogFile.Add('作者　　：' + author);
             if authurl <> '' then
               LogFile.Add('作者URL : ' + authurl);
             // #$0D#$0Aを削除する
@@ -713,7 +711,7 @@ begin
             if hWnd <> 0 then
             begin
               conhdl := GetStdHandle(STD_OUTPUT_HANDLE);
-              sendstr := title + ',' + auther;
+              sendstr := title + ',' + author;
               Cds.dwData := PageList.Count - StartN + 1;
             {$IFDEF FPC}
               ws := UTF8ToUTF16(sendstr);
@@ -753,7 +751,7 @@ begin
   if ParamCount = 0 then
   begin
     Writeln('');
-    Writeln('kakuyomudl ver4.9 2026/3/15 (c) INOUE, masahiro.');
+    Writeln('kakuyomudl ver4.91 2026/4/7 (c) INOUE, masahiro.');
     Writeln('  使用方法');
     Writeln('  kakuyomudl [-sDL開始ページ番号] 小説トップページのURL [保存するファイル名(省略するとタイトル名で保存します)]');
     Exit;
