@@ -1,6 +1,9 @@
 ﻿(*
   カクヨム小説ダウンローダー[kakuyomudl]
 
+  4.92 2026/04/09 ログファイルの見出しをna6dlと同じ書式に統一した
+                  本文の<br />を改行コードに変えていたが、カクヨムページでは無視されているようなので
+                  単純削除に変更した
   4.91 2026/04/07 本文のデコード処理の順番を間違え本文内の<***>を削除していた不具合を修正した
   4.9 2026/03/16  あらすじ、本文の取得を正規表現処理に変更した
   4.8 2026/03/15  タイトル名が不完全になる場合があった不具合を修正した
@@ -152,6 +155,15 @@ const
 
   CRLF   = #$0D#$0A;
 
+// ログファイル表題
+  NVURL  = '小説URL   :';
+  NVTITLE= 'タイトル  :';
+  NVAUTH = '作者      :';
+  NVAURL = '作者URL   :';
+  NVBIGN = '掲載日    :';
+  NVFINI = '最終掲載日:';
+  NVSYNP = 'あらすじ  :';
+
 // ユーザメッセージID
   WM_DLINFO  = WM_USER + 30;
 
@@ -242,10 +254,11 @@ begin
   Result := Base;
 end;
 
-// 本文の改行タグを改行コードに変換する
+// 本文の改行タグを削除する
 function ChangeBRK(Base: string): string;
 begin
-  Result := UTF8StringReplace(Base, '<br />', #13#10, [rfReplaceAll]);
+  //Result := UTF8StringReplace(Base, '<br />', #13#10, [rfReplaceAll]);
+  Result := UTF8StringReplace(Base, '<br />', '', [rfReplaceAll]);
 end;
 
 // 本文の青空文庫ルビ指定に用いられる文字があった場合誤作動しないように青空文庫代替表記に変換する(2022/3/25)
@@ -631,7 +644,8 @@ begin
         end;
         // タイトル名を保存
         TextPage.Add(title);
-        LogFile.Add('タイトル：' + title);
+        LogFile.Add(NVURL + URL);
+        LogFile.Add(NVTITLE + title);
         UTF8Delete(body, 1, sp + UTF8Length(STITLEE));
         authurl := '';
         // 作者URL
@@ -658,9 +672,9 @@ begin
             TextPage.Add('');
             TextPage.Add(AO_PB2);
             //TextPage.Add('');
-            LogFile.Add('作者　　：' + author);
+            LogFile.Add(NVAUTH + author);
             if authurl <> '' then
-              LogFile.Add('作者URL : ' + authurl);
+              LogFile.Add(NVAURL + authurl);
             // #$0D#$0Aを削除する
             body := ElimCRLF(body);
             UTF8Delete(body, 1, ep + UTF8Length(SAUTHERE));
@@ -688,7 +702,7 @@ begin
               TextPage.Add(ts);  // 前書きに《》を使う作者がいたりして
               TextPage.Add(AO_KKR);
               TextPage.Add(AO_PB2);
-              LogFile.Add('あらすじ：');
+              LogFile.Add(NVSYNP);
               LogFile.Add(ts);
             end;
             // 各話のURLを取得する
@@ -751,7 +765,7 @@ begin
   if ParamCount = 0 then
   begin
     Writeln('');
-    Writeln('kakuyomudl ver4.91 2026/4/7 (c) INOUE, masahiro.');
+    Writeln('kakuyomudl ver4.92 2026/4/9 (c) INOUE, masahiro.');
     Writeln('  使用方法');
     Writeln('  kakuyomudl [-sDL開始ページ番号] 小説トップページのURL [保存するファイル名(省略するとタイトル名で保存します)]');
     Exit;
@@ -816,7 +830,6 @@ begin
     PageList := TStringList.Create;
     TextPage := TStringList.Create;
     LogFile  := TStringList.Create;
-    LogFile.Add(URL);
     try
       NvStat := GetNovelStatus(TextLine);       // 小説の連載状況を取得
       ParseChapter(TextLine);                    // 小説の目次情報を取得
