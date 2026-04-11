@@ -1,6 +1,7 @@
 ﻿(*
   カクヨム小説ダウンローダー[kakuyomudl]
 
+  4.93 2026/04/11 &#x??;エンコードされた文字コードポイントのデコード方法を修正した
   4.92 2026/04/09 ログファイルの見出しをna6dlと同じ書式に統一した
                   本文の<br />を改行コードに変えていたが、カクヨムページでは無視されているようなので
                   単純削除に変更した
@@ -343,7 +344,6 @@ begin
     if r.Exec then
     begin
       repeat
-        UTF8Delete(tmp, r.MatchPos[0], r.MatchLen[0]);
         cd := r.Match[0];
         UTF8Delete(cd, 1, 2);           // &#を削除する
         UTF8Delete(cd, UTF8Length(cd), 1);  // 最後の;を削除する
@@ -351,14 +351,15 @@ begin
           cd[1] := '$';
         try
           w := StrToInt(cd);
-          ch := Char(w);
+          wch := WideChar(w);
         except
-          ch := '？';
+          wch := '?';
         end;
-        UTF8Insert(ch, tmp, r.MatchPos[0]);
-      until not r.ExecNext;
+        tmp := ReplaceRegExpr(r.Match[0], tmp, wch);
+        r.InputString := tmp;
+      until not r.Exec;
     end;
-    // unicodeエスケープ文字(\uxxxx)
+   // unicodeエスケープ文字(\uxxxx)
     r.Expression  := '\\u[0-9A-Fa-f]{4}';
     r.InputString := tmp;
     if r.Exec then
@@ -765,7 +766,7 @@ begin
   if ParamCount = 0 then
   begin
     Writeln('');
-    Writeln('kakuyomudl ver4.92 2026/4/9 (c) INOUE, masahiro.');
+    Writeln('kakuyomudl ver4.93 2026/4/11 (c) INOUE, masahiro.');
     Writeln('  使用方法');
     Writeln('  kakuyomudl [-sDL開始ページ番号] 小説トップページのURL [保存するファイル名(省略するとタイトル名で保存します)]');
     Exit;
